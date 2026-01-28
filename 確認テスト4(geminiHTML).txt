@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>基礎知識確認テスト | Smart Quiz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --primary-light: #eef2ff;
+      --secondary: #64748b;
+      --success: #10b981;
+      --bg-gradient: linear-gradient(135deg, #f5f7ff 0%, #e4e7ff 100%);
+      --glass: rgba(255, 255, 255, 0.95);
+      --text-main: #1e293b;
+      --text-sub: #475569;
+      --border: #e2e8f0;
+      --shadow-soft: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+      --shadow-strong: 0 20px 25px -5px rgba(99, 102, 241, 0.1), 0 10px 10px -5px rgba(99, 102, 241, 0.04);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: var(--bg-gradient);
+      background-attachment: fixed;
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif;
+      padding: 40px 20px;
+      line-height: 1.6;
+    }
+
+    /* --- Container --- */
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: var(--glass);
+      backdrop-filter: blur(10px);
+      border-radius: 32px;
+      padding: 48px;
+      box-shadow: var(--shadow-strong);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+    }
+
+    /* --- Header --- */
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .header-icon {
+      width: 80px;
+      height: 80px;
+      background: white;
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 40px;
+      box-shadow: var(--shadow-soft);
+      animation: bounce 2s infinite ease-in-out;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(to right, var(--primary), #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 12px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px;
+      background: var(--primary-light);
+      color: var(--primary);
+      border-radius: 99px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    /* --- User Info Box --- */
+    .userbox {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 32px;
+      background: #f8fafc;
+      padding: 24px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .field-group { display: flex; flex-direction: column; gap: 8px; }
+    .field-group label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input[type="text"] {
+      padding: 14px 18px;
+      border: 2px solid transparent;
+      background: white;
+      border-radius: 12px;
+      font-size: 15px;
+      transition: all 0.3s;
+      box-shadow: var(--shadow-soft);
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+    }
+
+    /* --- Buttons --- */
+    .btn {
+      padding: 16px 32px;
+      border-radius: 16px;
+      font-weight: 700;
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3);
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-dark);
+      transform: translateY(-2px);
+      box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.4);
+    }
+
+    .btn-secondary {
+      background: white;
+      color: var(--text-sub);
+      border: 2px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    /* --- Quiz Area --- */
+    #quizArea { margin-top: 40px; animation: fadeIn 0.6s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } }
+
+    .progress-container { margin-bottom: 30px; }
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-sub);
+      margin-bottom: 10px;
+    }
+
+    .progress-bar-bg {
+      height: 12px;
+      background: var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(to right, var(--primary), #a855f7);
+      width: 0%;
+      transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* --- Question Card --- */
+    .question-block {
+      background: white;
+      border-radius: 24px;
+      padding: 30px;
+      margin-bottom: 24px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .question-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .q-badge {
+      background: var(--primary);
+      color: white;
+      padding: 4px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .question-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    /* --- Choices --- */
+    .choices { display: flex; flex-direction: column; gap: 12px; }
+
+    .choice {
+      position: relative;
+      padding: 16px 20px;
+      background: #f8fafc;
+      border: 2px solid transparent;
+      border-radius: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .choice:hover {
+      background: #f1f5f9;
+      transform: translateX(5px);
+    }
+
+    .choice input {
+      width: 20px;
+      height: 20px;
+      accent-color: var(--primary);
+    }
+
+    /* 選択時のスタイル（JSで動的に制御する場合はCSSクラスを追加する形が理想） */
+    .choice-selected {
+      background: var(--primary-light) !important;
+      border-color: var(--primary) !important;
+    }
+
+    textarea {
+      width: 100%;
+      border: 2px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      font-family: inherit;
+      min-height: 120px;
+      transition: all 0.3s;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      background: white;
+    }
+
+    /* --- Footer --- */
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 40px;
+      padding-top: 30px;
+      border-top: 2px solid var(--border);
+    }
+
+    .nav-btns { display: flex; gap: 12px; }
+
+    @media (max-width: 640px) {
+      .container { padding: 24px; border-radius: 0; }
+      .userbox { grid-template-columns: 1fr; }
+      .footer { flex-direction: column; gap: 20px; }
+      .nav-btns { width: 100%; }
+      .nav-btns .btn { flex: 1; }
+      .btn-finish { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header">
+      <div class="header-icon">🖋️</div>
+      <h1>基礎知識確認テスト</h1>
+      <div class="status" id="status">Ready to Start</div>
+    </div>
+
+    <div class="userbox">
+      <div class="field-group">
+        <label>氏名</label>
+        <input id="userName" type="text" placeholder="山田 太郎">
+      </div>
+      <div class="field-group">
+        <label>社員番号</label>
+        <input id="empNo" type="text" placeholder="12345">
+      </div>
+    </div>
+
+    <div id="startSection" style="text-align: center;">
+      <button class="btn btn-primary" style="margin: 0 auto;" onclick="loadQuiz(true)">
+        テストを開始する
+      </button>
+    </div>
+
+    <div id="quizArea">
+      <div class="progress-container">
+        <div class="progress-info">
+          <span id="qIndexText">Page 1 of 4</span>
+          <span id="answeredText">回答済み: 0/20</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="bar"></div>
+        </div>
+      </div>
+
+      <div id="choiceBox"></div>
+
+      <div class="footer">
+        <div class="nav-btns">
+          <button class="btn btn-secondary" id="prevBtn" onclick="prev()">← Previous</button>
+          <button class="btn btn-secondary" id="nextBtn" onclick="next()">Next →</button>
+        </div>
+        <button class="btn btn-primary btn-finish" style="background: var(--success);" onclick="finish()">
+          ✓ 終了して保存
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 基本ロジックは引き継ぎ、一部UI反映用に追加
+    function $(id) { return document.getElementById(id); }
+    
+    let questions = [];
+    let answers = [];
+    let pageIndex = 0;
+    const PAGE_SIZE = 5;
+
+    function loadQuiz(force) {
+      const name = $('userName').value.trim();
+      const no = $('empNo').value.trim();
+      if (!name || !no) {
+        alert('氏名と社員番号を入力してください');
+        return;
+      }
+
+      $('status').innerHTML = '<span>⏳</span> 読み込み中...';
+      
+      google.script.run
+        .withSuccessHandler(data => {
+          questions = data || [];
+          answers = new Array(questions.length).fill(null);
+          $('startSection').style.display = 'none';
+          $('quizArea').style.display = 'block';
+          $('status').textContent = `受験者: ${name}`;
+          renderPage(0);
+        })
+        .withFailureHandler(err => alert(err))
+        .getQuizData();
+    }
+
+    function renderPage(page) {
+      const total = questions.length;
+      const pages = Math.ceil(total / PAGE_SIZE);
+      pageIndex = page;
+
+      // 進捗更新
+      const answeredCount = answers.filter(a => a !== null).length;
+      $('bar').style.width = `${(answeredCount / total) * 100}%`;
+      $('qIndexText').textContent = `ページ ${pageIndex + 1} / ${pages}`;
+      $('answeredText').textContent = `回答済み: ${answeredCount} / ${total}`;
+
+      const start = pageIndex * PAGE_SIZE;
+      const slice = questions.slice(start, start + PAGE_SIZE);
+      const box = $('choiceBox');
+      box.innerHTML = '';
+
+      slice.forEach((q, i) => {
+        const qIdx = start + i;
+        const block = document.createElement('div');
+        block.className = 'question-block';
+        
+        block.innerHTML = `
+          <div class="question-header">
+            <span class="q-badge">Q${qIdx + 1}</span>
+            <div class="question-title">${q.question}</div>
+          </div>
+          <div class="choices" id="q${qIdx}_container"></div>
+        `;
+
+        const container = block.querySelector(`#q${qIdx}_container`);
+
+        if (q.type === '選択') {
+          q.choices.forEach((c, ci) => {
+            const label = document.createElement('label');
+            label.className = 'choice';
+            const inputType = q.multi ? 'checkbox' : 'radio';
+            label.innerHTML = `
+              <input type="${inputType}" name="q${qIdx}" value="${c}">
+              <span>${c}</span>
+            `;
+            // 選択時の視覚効果
+            label.onclick = () => {
+                setTimeout(() => updateSelectionStyles(qIdx, q.multi), 10);
+            };
+            container.appendChild(label);
+          });
+        } else {
+          const ta = document.createElement('textarea');
+          ta.id = `q${qIdx}_free`;
+          ta.placeholder = "こちらに回答を入力してください...";
+          container.appendChild(ta);
+        }
+
+        box.appendChild(block);
+        restoreAnswer(qIdx, q);
+      });
+
+      $('prevBtn').disabled = (pageIndex === 0);
+      $('nextBtn').disabled = (pageIndex >= pages - 1);
+    }
+
+    function updateSelectionStyles(qIdx, isMulti) {
+        const container = $(`q${qIdx}_container`);
+        const labels = container.querySelectorAll('.choice');
+        labels.forEach(l => {
+            if(l.querySelector('input').checked) {
+                l.classList.add('choice-selected');
+            } else {
+                l.classList.remove('choice-selected');
+            }
+        });
+    }
+
+    function restoreAnswer(qIdx, q) {
+      const a = answers[qIdx];
+      if (!a) return;
+
+      if (q.type === '選択') {
+        const inputs = document.querySelectorAll(`input[name="q${qIdx}"]`);
+        inputs.forEach(inp => {
+          if (Array.isArray(a.response)) {
+            if (a.response.includes(inp.value)) inp.checked = true;
+          } else {
+            if (a.response === inp.value) inp.checked = true;
+          }
+        });
+        updateSelectionStyles(qIdx, q.multi);
+      } else {
+        const ta = $(`q${qIdx}_free`);
+        if(ta) ta.value = a.response;
+      }
+    }
+
+    function saveCurrentPage() {
+  const start = pageIndex * PAGE_SIZE;
+  for (let i = 0; i < PAGE_SIZE; i++) {
+    const qIdx = start + i;
+    if (qIdx >= questions.length) break;
+    
+    const q = questions[qIdx];
+    let res = null;
+
+    if (q.type === '選択') {
+      const selected = Array.from(document.querySelectorAll(`input[name="q${qIdx}"]:checked`)).map(el => el.value);
+      if (selected.length) {
+        res = q.multi ? selected : selected[0];
+      }
+    } else {
+      const ta = $(`q${qIdx}_free`);
+      if (ta) {
+        const val = ta.value.trim();
+        if (val) res = val;
+      }
+    }
+
+    // 回答がある場合のみ保存、ない場合はnullのまま（上書きして消さないように注意）
+    if (res !== null) {
+      answers[qIdx] = { response: res, question: q.question };
+    }
+  }
+}
+
+    function next() { saveCurrentPage(); renderPage(pageIndex + 1); window.scrollTo(0,0); }
+    function prev() { saveCurrentPage(); renderPage(pageIndex - 1); window.scrollTo(0,0); }
+
+    function finish() {
+  saveCurrentPage();
+  const user = { name: $('userName').value, empNo: $('empNo').value };
+  
+  // 修正版ペイロード作成
+  const payload = answers.map((a, i) => {
+      if (!a) return null;
+      const q = questions[i];
+      return { 
+        ...a, 
+        type: q.type, 
+        points: q.points, 
+        correct: q.correct,
+        corrects: q.corrects,
+        choices: q.choices 
+      };
+  }).filter(a => a !== null);
+  
+  if(payload.length < questions.length) {
+    if(!confirm('未回答の問題があります。送信してもよろしいですか？')) return;
+  } else {
+    if(!confirm('テストを終了して送信しますか？\n（AIによる採点には数秒かかる場合があります）')) return;
+  }
+
+  // 二重送信防止
+  const finishBtn = document.querySelector('.btn-finish');
+  finishBtn.disabled = true;
+  finishBtn.textContent = '⌛ 採点・保存中...';
+  $('status').textContent = '送信中...しばらくお待ちください';
+
+  google.script.run
+    .withSuccessHandler(res => {
+        alert('送信が完了しました！\n今回の合計得点: ' + res.total + '点');
+        // 送信後は入力をロックするか、画面をリロードする
+        location.reload(); 
+    })
+    .withFailureHandler(err => {
+        alert('エラーが発生しました: ' + err);
+        finishBtn.disabled = false;
+        finishBtn.textContent = '✓ 終了して保存';
+    })
+    .submitResults(payload, user);
+}
+  </script>
+</body>
+</html>

@@ -1,0 +1,385 @@
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('問題マスター')
+    .addItem('クイズ開始（全問）', 'showDialogQuiz')
+    .addSeparator()
+    .addItem('【ID】このファイルをターゲットに設定', 'setSpreadsheetId_auto')  // ← 自動取得
+    .addItem('【ID】URL/IDを手動で登録', 'setSpreadsheetId_prompt')            // ← 手動登録
+    .addItem('【ID】現在のターゲットを確認', 'showSpreadsheetId')              // ← 確認
+    .addSeparator()
+    .addItem('WebアプリURLを開く', 'openWebApp')
+    .addItem('WebアプリURLを登録', 'setWebAppUrl_prompt')
+    .addToUi();
+}
+
+/** ─────────────────────────────────────────────
+ *  ターゲットSSのIDを ScriptProperties に保存・参照するユーティリティ
+ *  キー: TARGET_SPREADSHEET_ID
+ *  ───────────────────────────────────────────── */
+function setSpreadsheetId_auto() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    ui.alert('アクティブなスプレッドシートが見つかりません。シートから「拡張機能→Apps Script」を開いてください。');
+    return;
+  }
+  const id = ss.getId();
+  PropertiesService.getScriptProperties().setProperty('TARGET_SPREADSHEET_ID', id);
+  ui.alert('このスプレッドシートをターゲットに設定しました。\nID: ' + id);
+}
+
+function setSpreadsheetId_prompt() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.prompt('ターゲットのスプレッドシートURLまたはIDを貼り付けてください',
+    '例）https://docs.google.com/spreadsheets/d/＜ID＞/edit または ＜ID＞', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+
+  const raw = (res.getResponseText() || '').trim();
+  const id = extractSpreadsheetId_(raw);
+  if (!id) {
+    ui.alert('入力内容からスプレッドシートIDを取得できませんでした。\nURL形式やID文字列をご確認ください。');
+    return;
+  }
+
+  // ID妥当性チェック（存在確認）
+  try {
+    const ss = SpreadsheetApp.openById(id);
+    if (!ss) throw new Error('openByIdが失敗');
+  } catch (e) {
+    ui.alert('指定IDのスプレッドシートを開けませんでした。\n権限や共有設定を確認してください。\nID: ' + id + '\nError: ' + e);
+    return;
+  }
+
+  PropertiesService.getScriptProperties().setProperty('TARGET_SPREADSHEET_ID', id);
+  ui.alert('ターゲットIDを登録しました。\nID: ' + id);
+}
+
+function showSpreadsheetId() {
+  const ui = SpreadsheetApp.getUi();
+  const id = PropertiesService.getScriptProperties().getProperty('TARGET_SPREADSHEET_ID') || '(未登録)';
+  ui.alert('現在のターゲットSS ID:\n' + id);
+}
+
+/** 入力文字列（URL/ID）からSS IDを抽出 */
+function extractSpreadsheetId_(input) {
+  const s = String(input || '').trim();
+
+  // 1) そのままIDっぽい（/ や ? が含まれない、長めの英数・ハイフン・アンダースコア）
+  if (/^[A-Za-z0-9_\-]{20,}$/.test(s)) return s;
+
+  // 2) URL形式から /spreadsheets/d/＜ID＞/ を抽出
+  const m = s.match(/\/spreadsheets\/d\/([A-Za-z0-9_\-]+)/);
+  if (m && m[1]) return m[1];
+
+  // 3) 余分なクエリやフラグメントを削除したID候補の抽出（保険）
+  const m2 = s.match(/([A-Za-z0-9_\-]{20,})/);
+  if (m2 && m2[1]) return m2[1];
+
+  return '';
+}
+
+/** 保存済みターゲットSSを開く（なければエラー） */
+function openTargetSpreadsheet_() {
+  const id = PropertiesService.getScriptProperties().getProperty('TARGET_SPREADSHEET_ID');
+  if (!id) throw new Error('ターゲットのスプレッドシートIDが未設定です。「【ID】このファイルをターゲットに設定」または「【ID】URL/IDを手動で登録」を実行してください。');
+  return SpreadsheetApp.openById(id);
+}
+
+/** 文字列正規化（前後空白・大小・全角カンマ/スラッシュ等の基本対策） */
+function _norm_(s) {
+  return String(s ?? '')
+    .replace(/\u3000/g, ' ')      // 全角スペース → 半角
+    .trim()
+    .toLowerCase();
+}
+
+/** G列の正解セルをトークン配列へ（カンマ・読点・スラッシュ・セミコロン・改行を区切り） */
+function _splitTokens_(s) {
+  return String(s ?? '')
+    .split(/[,\u3001\/\uFF0C\uFF0F;\uFF1B\r\n]+/) // , 、 ／ ， ／ ; ； 改行
+    .map(t => t.trim())
+    .filter(t => t !== '');
+}
+
+/** トークン（A,B,C…／1,2,3…／テキスト）を選択肢テキストへマッピング */
+function _tokensToChoiceTexts_(tokens, choices) {
+  const mapLetter = { a:0, b:1, c:2, d:3, e:4, f:5 }; // C〜Fまで対応
+  const out = [];
+  const choicesNorm = choices.map(c => _norm_(c));
+  tokens.forEach(tok => {
+    const n = _norm_((tok));
+    let idx = -1;
+
+    // 1) テキスト一致（大小・空白無視）
+    const byText = choicesNorm.indexOf(n);
+    if (byText >= 0) {
+      out.push(choices[byText]);
+      return;
+    }
+    // 2) A~F 指定
+    if (n in mapLetter) {
+      idx = mapLetter[n];
+      if (idx >= 0 && idx < choices.length) out.push(choices[idx]);
+      return;
+    }
+    // 3) 数字 1~6 指定
+    if (/^\d+$/.test(n)) {
+      idx = parseInt(n, 10) - 1;
+      if (idx >= 0 && idx < choices.length) out.push(choices[idx]);
+      return;
+    }
+    // 4) マッチなし → 無視（警告はしない）
+  });
+  // 重複除去
+  return Array.from(new Set(out));
+}
+
+/** 集合一致（配列同士を大小・空白無視で比較、順不同） */
+function _setEquals_(arrA, arrB) {
+  const A = Array.from(new Set(arrA.map(_norm_))).sort();
+  const B = Array.from(new Set(arrB.map(_norm_))).sort();
+  if (A.length !== B.length) return false;
+  for (let i = 0; i < A.length; i++) if (A[i] !== B[i]) return false;
+  return true;
+}
+
+
+/** 選択肢テキスト配列を A/B/C... のラベル配列へ変換（大小・空白無視で一致） */
+function _textsToLetters_(items, choices) {
+  if (!Array.isArray(items)) items = [String(items ?? '')];
+  const letters = ['A','B','C','D','E','F'];
+  const choicesNorm = (choices || []).map(_norm_);
+  const out = [];
+
+  items.forEach(txt => {
+    const n = _norm_(txt);
+    const idx = choicesNorm.indexOf(n);
+    if (idx >= 0 && idx < letters.length) {
+      out.push(letters[idx]);
+    } else {
+      // 一致しない場合は保険：そのまま（記録を欠損させない）
+      out.push(txt);
+    }
+  });
+
+  // 重複除去
+  return Array.from(new Set(out));
+}
+
+
+// ① スプレッドシート内で開く（安定ルート）
+function showDialogQuiz() {
+  const tmpl = HtmlService.createTemplateFromFile('FullQuiz');
+  const html = tmpl.evaluate()
+    .setTitle('5S/一般クイズ（全問）')
+    .setWidth(1200)
+    .setHeight(800);
+  SpreadsheetApp.getActiveSpreadsheet().show(html);
+}
+
+// ② Webアプリ本体（URLで全画面表示）
+function doGet() {
+  const tmpl = HtmlService.createTemplateFromFile('FullQuiz');
+  return tmpl.evaluate().setTitle('5S/一般クイズ（全問）');
+}
+
+// 問題データ（全件）を取得
+
+
+
+function getQuizData() {
+  const ss = (typeof openTargetSpreadsheet_ === 'function')
+    ? openTargetSpreadsheet_()
+    : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('ターゲットのスプレッドシートが見つかりません');
+
+  const sheet = ss.getSheetByName('問題マスター');
+  if (!sheet) throw new Error('シート「問題マスター」が見つかりません');
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) throw new Error('問題マスターに問題がありません（2行目以降）');
+
+  // 列定義（A=0）
+  const COL_QUESTION = 0;         // A
+  const COL_TYPE     = 1;         // B
+  const COL_CHOICES_START = 2;    // C
+  const COL_CHOICES_END   = 6;    // G（← ここまで選択肢）
+  const COL_ANSWER  = 7;          // H（← 正解列をHへ）
+
+  const questions = values.slice(1).map(row => {
+    const question = String(row[COL_QUESTION] ?? '').trim();
+    const typeRaw  = String(row[COL_TYPE] ?? '').trim();
+
+    // C..G（5列）から空欄除去で動的個数
+    const choices  = row.slice(COL_CHOICES_START, COL_CHOICES_END + 1)
+                        .map(c => String(c ?? '').trim())
+                        .filter(s => s !== '');
+
+    const correctCell = String(row[COL_ANSWER] ?? '').trim();
+    const type = (typeRaw === '選択' && choices.length > 0) ? '選択' : '記述';
+
+    const tokens   = _splitTokens_(correctCell);
+    let corrects   = [];
+    let multi      = false;
+
+    if (type === '選択') {
+      corrects = _tokensToChoiceTexts_(tokens, choices);
+      multi    = corrects.length > 1;
+      if (corrects.length === 0 && correctCell) { corrects = [correctCell]; multi = false; }
+    } else {
+      corrects = tokens.length ? tokens : (correctCell ? [correctCell] : []);
+      multi    = corrects.length > 1;
+    }
+
+    return { question, type, choices, correct: correctCell, corrects, multi };
+  }).filter(q => q.question !== '');
+
+  return questions;
+}
+
+
+/**
+ * 結果の保存（一括）
+ * @param {Array<Object>} results [{timestamp,question,response,correct}]
+ * @param {{name:string, empNo:string}} user 受験者情報
+ */
+
+/**
+ * 結果の保存（一括）
+ * @param {Array<Object>} results [{timestamp,question,response,correct,corrects?}]
+ *   - response: string | Array<string>
+ *   - correct : string（表示用の連結済み）※後方互換
+ *   - corrects: Array<string>（採点用、あれば優先）
+ * @param {{name:string, empNo:string}} user 受験者情報
+ */
+
+/**
+ * 結果の保存（一括）
+ * @param {Array<Object>} results [{timestamp,question,response,correct,corrects?,type,choices?}]
+ *   - response: string | Array<string>（選択式は選択肢テキスト、記述式はテキスト）
+ *   - correct : string（元セルの文字列）
+ *   - corrects: Array<string>（採点用の正解テキスト配列）
+ *   - type    : '選択' | '記述'
+ *   - choices : Array<string>（選択肢テキスト配列）
+ * @param {{name:string, empNo:string}} user 受験者情報
+ */
+
+/**
+ * 結果の保存（一括）
+ * @param {Array<Object>} results [{timestamp,question,response,correct,corrects?,type,choices?}]
+ * @param {{name:string, empNo:string}} user
+ */
+function submitResults(results, user) {
+  const ss = (typeof openTargetSpreadsheet_ === 'function')
+    ? openTargetSpreadsheet_()
+    : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('ターゲットのスプレッドシートが見つかりません');
+
+  const resultName = '結果シート';
+  let resultSheet = ss.getSheetByName(resultName);
+  if (!resultSheet) resultSheet = ss.insertSheet(resultName);
+
+  if (resultSheet.getLastRow() === 0) {
+    resultSheet.appendRow(['日時', '氏名', '社員番号', '問題文', '回答', '正解', '判定']);
+  }
+
+  const name  = String(user?.name ?? '').trim();
+  const empNo = String(user?.empNo ?? '').trim();
+
+  const rows = (results || []).map(r => {
+    const ts      = r.timestamp ? new Date(r.timestamp) : new Date();
+    const q       = r.question ?? '';
+    const type    = r.type ?? '記述';
+    const choices = Array.isArray(r.choices) ? r.choices : [];
+    const respArr = Array.isArray(r.response) ? r.response : [String(r.response ?? '')];
+    const corrArr = Array.isArray(r.corrects) ? r.corrects : _splitTokens_(String(r.correct ?? ''));
+
+    // 採点
+    let isCorrect = false;
+    if (Array.isArray(r.response)) {
+      isCorrect = _setEquals_(respArr, corrArr);
+    } else {
+      isCorrect = corrArr.map(_norm_).includes(_norm_(r.response));
+    }
+
+    // 記録：選択式は A/B/C.. 表記、記述式は本文
+    let responseStr, correctStr;
+    if (type === '選択') {
+      const respLetters = _textsToLetters_(respArr, choices);
+      const corrLetters = _textsToLetters_(corrArr, choices);
+      responseStr = respLetters.join(' | ');
+      correctStr  = corrLetters.join(' | ');
+    } else {
+      responseStr = respArr.filter(s => String(s).trim() !== '').join(' | ');
+      correctStr  = corrArr.filter(s => String(s).trim() !== '').join(' | ');
+    }
+
+    const judgment = isCorrect ? '正解' : '不正解';
+    return [ts, name, empNo, q, responseStr, correctStr, judgment];
+  });
+
+  if (rows.length) {
+    const startRow = resultSheet.getLastRow() + 1;
+    resultSheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+  }
+  return { saved: rows.length };
+}
+
+
+/* ── 任意：WebアプリURLの登録＆起動（メニュー用） ── */
+function setWebAppUrl(url) {
+  PropertiesService.getScriptProperties().setProperty('WEB_APP_URL', url);
+}
+
+
+function setWebAppUrl_prompt() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.prompt('WebアプリURL（/exec）を貼り付けてください', 
+                        'https://script.google.com/macros/s/…/exec', 
+                        ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+
+  // 余計な全角スペース・改行・スマートクォートを除去
+  let url = (res.getResponseText() || '')
+              .replace(/[“”‘’]/g, '"')   // 変換用（念のため）
+              .trim();
+
+  // ▼ 許可するURLパターン
+  //  - https://script.google.com/macros/s/{DEPLOY_ID}/exec
+  //  - https://script.google.com/a/macros/{DOMAIN}/s/{DEPLOY_ID}/exec
+  const ok =
+    /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(url) ||
+    /^https:\/\/script\.google\.com\/a\/macros\/[^/]+\/s\/[^/]+\/exec$/.test(url);
+
+  if (!ok) {
+    ui.alert(
+      'URL形式が正しくありません。\n' +
+      '次のいずれかの形で入力してください：\n' +
+      '・https://script.google.com/macros/s/＜ID＞/exec\n' +
+      '・https://script.google.com/a/macros/＜ドメイン＞/s/＜ID＞/exec'
+    );
+    return;
+  }
+
+  setWebAppUrl(url);
+  ui.alert('URLを登録しました');
+}
+
+
+function getWebAppUrl_() {
+  return PropertiesService.getScriptProperties().getProperty('WEB_APP_URL') || '';
+}
+
+function openWebApp() {
+  const url = getWebAppUrl_();
+  const ui = SpreadsheetApp.getUi();
+  if (!url) {
+    const html = HtmlService.createHtmlOutput('<p>WebアプリURLが未登録です。「問題マスター → WebアプリURLを登録」から登録してください。</p>')
+      .setTitle('起動エラー');
+    SpreadsheetApp.getActiveSpreadsheet().show(html); // ダイアログ表示
+    return;
+  }
+  const html = HtmlService.createHtmlOutput(`<p><a href="${url}" target="_blank" rel="noopener">ここをクリックして全画面クイズ（Web版）を開く</a></p>`)
+    .setTitle('Webアプリ起動');
+  SpreadsheetApp.getActiveSpreadsheet().show(html);
+}

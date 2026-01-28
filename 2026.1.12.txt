@@ -1,0 +1,33 @@
+デプロイID
+AKfycbyvFNvKmS4cdiZrZFnoBMxlU5LltOTLELguwWFuyBbAYLK11UjkIpUFdO7lLoGqO3Jg
+ウエブアプリ
+https://script.google.com/a/macros/sanko-grp.co.jp/s/AKfycbyvFNvKmS4cdiZrZFnoBMxlU5LltOTLELguwWFuyBbAYLK11UjkIpUFdO7lLoGqO3Jg/exec
+
+
+.createMenu('問題マスター')
+    .addItem('全画面クイズ開始（Webアプリ）', 'openWebApp')
+    .addItem('ダイアログ版（簡易）', 'showDialogQuiz') // お好みで
+    .addToUi();
+
+
+ラッパ－関数
+// ★一時的に使うだけのラッパー関数（実行したら削除してOK）
+function setWebAppUrl_once() {
+  // ここにデプロイ画面でコピーしたURLを貼り付ける
+  setWebAppUrl('https://script.google.com/macros/s/xxxxxxxxxxxxxxxx/exec');
+
+
+デプロイID
+AKfycbzgalgKb20QH3XI-c43ttF5oBP7uQ-TVXXVX_Uk3jI73RyBx71nvP_3l-u3mKMz_Zt7
+
+
+ウエブアプリ
+https://script.google.com/a/macros/sanko-grp.co.jp/s/AKfycbzgalgKb20QH3XI-c43ttF5oBP7uQ-TVXXVX_Uk3jI73RyBx71nvP_3l-u3mKMz_Zt7/exec
+
+
+ラッパ－関数
+// ★一時的に使うだけのラッパー関数（実行したら削除してOK）
+function setWebAppUrl_once() {
+  // ここにデプロイ画面でコピーしたURLを貼り付ける
+  setWebAppUrl('https://script.google.com/a/macros/sanko-grp.co.jp/s/AKfycbzgalgKb20QH3XI-c43ttF5oBP7uQ-TVXXVX_Uk3jI73RyBx71nvP_3l-u3mKMz_Zt7/exec');
+}

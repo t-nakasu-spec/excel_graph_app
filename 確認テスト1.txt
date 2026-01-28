@@ -1,0 +1,145 @@
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('問題マスター')
+    .addItem('全画面クイズ開始（Webアプリ）', 'openWebApp')
+    .addItem('ダイアログ版（簡易）', 'showDialogQuiz') // お好みで
+    .addToUi();
+}
+
+
+// ---- Webアプリ起動（スプレッドシートからURLを開く） ----
+function openWebApp() {
+  const url = getWebAppUrl_();
+  if (!url) {
+    SpreadsheetApp.getUi().alert('Webアプリが未デプロイです。「デプロイ → 新しいデプロイ」で公開してください。');
+    return;
+  }
+  const html = HtmlService.createHtmlOutput(
+    `<p><a href="${url}" target="_blank">ここをクリックして全画面クイズを開く</a></p>`
+  ).setTitle('クイズ起動');
+  SpreadsheetApp.getActiveSpreadsheet().show(html);
+}
+
+// ---- Webアプリ本体（画面いっぱい） ----
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('FullQuiz')
+    .setTitle('5S/一般クイズ');
+}
+
+// ---- ダイアログ版（必要なら利用） ----
+function showDialogQuiz() {
+  const tmpl = HtmlService.createTemplateFromFile('FullQuiz');
+  const html = tmpl.evaluate()
+    .setTitle('5S/一般クイズ')
+    .setWidth(1200)
+    .setHeight(800);
+  SpreadsheetApp.getActiveSpreadsheet().show(html); // ← 代替ルート
+}
+
+
+
+/**
+ * 問題データを取得
+ * @param {{limit?: number, shuffle?: boolean}} options
+ * @return {Array<Object>} [{question,type,choices,correct}]
+ */
+function getQuizData(options) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('アクティブなスプレッドシートが見つかりません');
+
+  const masterName = '問題マスター';
+  const sheet = ss.getSheetByName(masterName);
+  if (!sheet) throw new Error(`シート「${masterName}」が見つかりません`);
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) throw new Error('問題マスターに問題がありません（2行目以降）');
+
+  const COL_QUESTION = 0;
+  const COL_TYPE = 1;
+  const COL_CHOICES_START = 2; // C
+  const COL_CHOICES_END = 5;   // F
+  const COL_ANSWER = 6;        // G
+
+  let questions = values.slice(1).map(row => {
+    const question = String(row[COL_QUESTION] ?? '').trim();
+    const typeRaw = String(row[COL_TYPE] ?? '').trim();
+    const choices = row.slice(COL_CHOICES_START, COL_CHOICES_END + 1)
+      .map(c => String(c ?? '').trim()).filter(s => s !== '');
+    const correct = String(row[COL_ANSWER] ?? '').trim();
+
+    // 選択なのに選択肢が無ければ記述にフォールバック
+    const type = (typeRaw === '選択' && choices.length > 0) ? '選択' : '記述';
+    return { question, type, choices, correct };
+  }).filter(q => q.question !== '');
+
+  // シャッフル
+  if (options?.shuffle) {
+    for (let i = questions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [questions[i], questions[j]] = [questions[j], questions[i]];
+    }
+  }
+
+  // 出題数制限
+  const limit = Number(options?.limit ?? 0);
+  if (limit > 0) questions = questions.slice(0, Math.min(limit, questions.length));
+
+  return questions;
+}
+
+/**
+ * 結果の保存（クライアントから一括受け取り）
+ * @param {Array<Object>} results [{timestamp,question,response,correct}]
+ */
+function submitResults(results) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('アクティブなスプレッドシートが見つかりません');
+
+  const resultName = '結果シート';
+  let resultSheet = ss.getSheetByName(resultName);
+  if (!resultSheet) resultSheet = ss.insertSheet(resultName);
+
+  // 初回ヘッダー
+  if (resultSheet.getLastRow() === 0) {
+    resultSheet.appendRow(['日時', '問題文', '回答', '正解', '判定']);
+  }
+
+  const norm = (s) => String(s ?? '').trim().toLowerCase();
+  const rows = (results || []).map(r => {
+    const ts = r.timestamp ? new Date(r.timestamp) : new Date();
+    const q = r.question ?? '';
+    const response = r.response ?? '';
+    const correct = r.correct ?? '';
+    const isCorrect = norm(response) === norm(correct);
+    const judgment = isCorrect ? '正解' : '不正解';
+    return [ts, q, response, correct, judgment];
+  });
+
+  if (rows.length) {
+    const startRow = resultSheet.getLastRow() + 1;
+    resultSheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+  }
+  return { saved: rows.length };
+}
+
+// ---- WebアプリURL取得（デプロイ後に使用） ----
+function getWebAppUrl_() {
+  try {
+    // スクリプトIDからデプロイ一覧を取得できないため、
+    // UrlFetchは使わず、プロパティに手動保存する方式も可。
+    // ここでは ScriptProperties 経由で保存しておく設計にします。
+    const props = PropertiesService.getScriptProperties();
+    return props.getProperty('WEB_APP_URL') || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * （任意）WebアプリURLを保存してメニューから開けるようにする
+ * 実行してURLを登録してください。
+ */
+function setWebAppUrl(url) {
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('WEB_APP_URL', url);
+}

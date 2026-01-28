@@ -1,0 +1,127 @@
+// ================================
+// 設定
+// ================================
+const OPENAI_API_KEY = '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';
+const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const MODEL_NAME = 'gpt-4.1-mini'; // 軽量・安価・要約向き
+
+function buildPrompt(lang, textData) {
+
+  switch (lang) {
+
+    case 'ja-JP':
+      return `
+以下のスプレッドシートの内容を、新入社員に分かりやすく説明してください。
+先生が授業で話すような、丁寧な口語体で説明してください。
+必要に応じて例や比喩を使ってください。
+
+データ：
+${textData}
+`;
+
+    case 'en-US':
+      return `
+Please explain the following spreadsheet data in a way that is easy for new employees to understand.
+Use a polite, conversational teaching tone.
+Rephrase difficult parts and add examples when helpful.
+
+Data:
+${textData}
+`;
+
+    case 'mn':
+      return `
+Дараах хүснэгтийн мэдээллийг шинэ ажилтанд ойлгомжтой байдлаар тайлбарлана уу.
+Багш хичээл зааж байгаа мэт эелдэг, ярианы өнгө аяс ашиглана уу.
+Хэцүү хэсгийг жишээ ашиглан тайлбарлана уу.
+
+Өгөгдөл:
+${textData}
+`;
+
+    case 'es-ES':
+      return `
+Explique el siguiente contenido de la hoja de cálculo de manera clara para un empleado nuevo.
+Utilice un tono conversacional y educativo.
+Use ejemplos o comparaciones cuando sea necesario.
+
+Datos:
+${textData}
+`;
+
+    default:
+      return textData;
+  }
+}
+
+/**
+ * 選択したセルの内容をAIで要約する（サイドパネル用）
+ */
+function summarizeSelectedData(lang) {
+
+  const sheet = SpreadsheetApp.getActiveSheet();
+  const range = sheet.getActiveRange();
+
+  if (!range) {
+    return '【エラー】範囲が選択されていません。';
+  }
+
+  const values = range.getValues();
+  const textData = values
+    .map(row => row.map(v => v == null ? '' : String(v)).join(' '))
+    .join('\n')
+    .trim();
+
+  if (!textData) {
+    return '【エラー】選択範囲にテキストがありません。';
+  }
+
+  const messages = [
+    {
+      role: 'system',
+      content: 'あなたは勤務経験30年のベテラン社員です。'
+    },
+    {
+      role: 'user',
+      content: buildPrompt(lang, textData)
+    }
+  ];
+
+  const payload = {
+    model: MODEL_NAME,
+    messages: messages,
+    temperature: 0.3
+  };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      Authorization: 'Bearer ' + OPENAI_API_KEY
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(OPENAI_API_URL, options);
+    const status = response.getResponseCode();
+    const bodyText = response.getContentText();
+
+    if (status !== 200) {
+      return `【APIエラー ${status}】\n${bodyText}`;
+    }
+
+    const result = JSON.parse(bodyText);
+    const summary = result?.choices?.[0]?.message?.content;
+
+    if (!summary) {
+      return '【エラー】AI応答が取得できませんでした。';
+    }
+
+    return summary;
+
+  } catch (e) {
+    return '【例外エラー】\n' + e.message;
+  }
+}

@@ -5,7 +5,7 @@
 # - 日付列デフォルトは「状態」
 # - 条件シート：B列=出荷品番、C列以降=すべてグラフ番号（列名は何でもOK）
 # - 左軸（棒）：生産済・生産時間[分]、右軸（線）：工数
-# - 異常値フィルタ、粒度（日/週/月）、期間指定、移動平均、CSVダウンロード
+# - 異常値フィルタ、粒度（日/週/月）、期間指定、CSVダウンロード
 # --------------------------------------------
 
 import numpy as np
@@ -124,7 +124,7 @@ def build_graph_map_dynamic(cond: pd.DataFrame, graph_cols: list[str]) -> dict:
             mapping.setdefault(gname, set()).add(item)
     return mapping
 
-def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str, ma_window: int | None) -> pd.DataFrame:
+def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataFrame:
     """
     日付列で集計（freq='D'|'W'|'M'）。工数=生産時間[分]/生産済（0除算=0）。
     """
@@ -144,22 +144,18 @@ def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str, ma_window: 
     grouped = _df.resample(freq).agg({"生産済": "sum", "生産時間[分]": "sum", "基準時間[分]": "sum", "能率[%]": "mean"})
     grouped["工数"] = np.where(grouped["生産済"] > 0, grouped["生産時間[分]"] / grouped["生産済"], 0.0)
 
-    if ma_window and ma_window > 1:
-        grouped["工数_MA"] = grouped["工数"].rolling(ma_window, min_periods=1).mean()
-    else:
-        grouped["工数_MA"] = np.nan
-
     grouped = grouped.reset_index().rename(columns={date_col: "日付"})
     # 日付列を確実にdatetime型に保持
     if "日付" in grouped.columns:
         grouped["日付"] = pd.to_datetime(grouped["日付"], errors="coerce")
     return grouped
 
-def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = None):
+def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = None, y_autorange: bool = False):
     """
     Plotlyを使った多軸グラフ
     左軸：棒（生産済・生産時間[分]・基準時間[分]）/ 右軸1：工数 / 右軸2：能率[%]
-    show_items: 表示要素の辞書 
+    show_items: 表示要素の辞書
+    y_autorange: Trueで Y軸ズーム許可、Falseで固定
     """
     if show_items is None:
         show_items = {"生産済": True, "生産時間[分]": True, "基準時間[分]": True, "工数": True, "能率[%]": True}
@@ -197,13 +193,12 @@ def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = Non
             )
     
     # 右軸：工数ライン
-    if show_items.get("工数", True):
-        y_field = "工数_MA" if "工数_MA" in _df.columns and _df["工数_MA"].notna().any() else "工数"
+    if show_items.get("工数", True) and "工数" in _df.columns:
         fig.add_trace(
             go.Scatter(
                 x=_df["日付"],
-                y=_df[y_field],
-                name="工数" if y_field == "工数" else "工数(MA)",
+                y=_df["工数"],
+                name="工数",
                 mode='lines+markers',
                 line=dict(color='#F39C12', width=3),
                 yaxis='y2'
@@ -227,10 +222,11 @@ def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = Non
     # レイアウト設定
     fig.update_layout(
         title=title,
-        xaxis=dict(title="日付"),
-        yaxis=dict(title="生産済・時間[分]", side='left'),
-        yaxis2=dict(title="工数", side='right', overlaying='y', title_font=dict(color='#F39C12'), tickfont=dict(color='#F39C12')),
-        yaxis3=dict(title="能率[%]", side='right', overlaying='y', anchor='free', position=0.95, title_font=dict(color='#E74C3C'), tickfont=dict(color='#E74C3C')),
+        xaxis=dict(title="日付", domain=[0, 0.88], tickformat="%m月%d日<br>%Y年"),
+        yaxis=dict(title="生産済・時間[分]", side='left', fixedrange=not y_autorange),
+        yaxis2=dict(title="工数", side='right', overlaying='y', title_font=dict(color='#F39C12'), tickfont=dict(color='#F39C12'), fixedrange=not y_autorange),
+        yaxis3=dict(title="能率[%]", side='right', overlaying='y', anchor='free', position=1.0, title_font=dict(color='#E74C3C'), tickfont=dict(color='#E74C3C'), fixedrange=not y_autorange),
+        margin=dict(r=150),
         hovermode='x unified',
         height=500,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
@@ -259,9 +255,6 @@ with st.sidebar:
     freq_choice = st.selectbox("集計粒度", options=freq_options, format_func=lambda x: x[0], index=0)
     freq = freq_choice[1]  # タプルの2番目の要素（文字列）を取得
 
-    ma_on = st.checkbox("工数の移動平均を表示", value=False)
-    ma_window = st.slider("移動平均ウィンドウ（日数換算）", min_value=2, max_value=28, value=7) if ma_on else None
-
     st.divider()
     st.markdown("**グラフ表示要素**")
     show_seisansu = st.checkbox("生産済", value=True)
@@ -269,6 +262,10 @@ with st.sidebar:
     show_kijun_time = st.checkbox("基準時間[分]", value=True)
     show_kosuu = st.checkbox("工数", value=True)
     show_nouritsu = st.checkbox("能率[%]", value=True)
+
+    st.divider()
+    st.markdown("**グラフ操作**")
+    y_autorange_mode = st.checkbox("Y軸自動スケール", value=False)
 
     st.divider()
     st.caption("※ ヘッダー行（0始まり）を調整できます。最上段が見出しでない場合にご利用ください。")
@@ -315,9 +312,18 @@ data = data_raw.copy()
 
 # 日付列の既定は「状態」
 date_col_default = pick_default_date_col(data)
+
+# 日付列候補を構築：DATE_CANDIDATES優先、その後中身が日付の列を補完
 date_options = [c for c in DATE_CANDIDATES if c in data.columns]
+for c in data.columns:
+    if c not in date_options and parse_datetime_series(data[c]).notna().any():
+        date_options.append(c)
+if not date_options and len(data.columns) > 0:
+    date_options = [data.columns[0]]
+
 if date_col_default not in date_options and date_col_default in data.columns:
     date_options.append(date_col_default)
+    
 date_col = st.selectbox(
     "日付列を選択（既定=状態）",
     options=date_options or list(data.columns),
@@ -372,11 +378,35 @@ with st.expander("データプレビュー（先頭50行）", expanded=False):
 with st.expander("条件シートプレビュー（先頭50行）", expanded=False):
     st.caption(f"シート: {cond_sheet_name} / 行数: {len(cond)} / グラフ列数: {len(graph_cols)}")
     st.dataframe(cond.head(50), use_container_width=True)
-
+st.divider()
 # ---- 総集計（全データ合算） ----
 st.subheader("① 総集計（全データ合算）")
+
 st.caption(f"集計対象データ件数: {len(data)} 件")
-overall_agg = aggregate_timeseries(data, date_col=date_col, freq=freq, ma_window=(ma_window if ma_on else None))
+
+# 品番選択UI（総集計用）
+all_hinban = sorted(data["出荷品番"].astype(str).str.strip().unique()) if "出荷品番" in data.columns else []
+with st.expander("🔧 表示条件（品番）", expanded=False):
+    if all_hinban:
+        selected_hinban_overall = st.multiselect(
+            "表示する品番を選択",
+            options=all_hinban,
+            default=all_hinban,
+            key="overall_hinban_select"
+        )
+    else:
+        selected_hinban_overall = []
+
+# フィルタリング
+if selected_hinban_overall:
+    data_filtered_overall = data[data["出荷品番"].astype(str).str.strip().isin(selected_hinban_overall)].copy()
+else:
+    data_filtered_overall = data.copy()
+
+# CSV用は全データで集計
+overall_agg = aggregate_timeseries(data, date_col=date_col, freq=freq)
+# グラフ用は選択された品番のみで集計
+overall_agg_filtered = aggregate_timeseries(data_filtered_overall, date_col=date_col, freq=freq)
 st.caption(f"集計結果: {len(overall_agg)} 行")
 
 # デバッグ：集計後のカラムを表示
@@ -388,24 +418,28 @@ with st.expander("🔍 デバッグ：集計後のカラム一覧", expanded=Fal
     st.write("**能率[%]の値（先頭10行）:**")
     st.write(overall_agg[["日付", "能率[%]"]].head(10))
 
-if overall_agg.empty:
+if not selected_hinban_overall:
+    st.warning("⚠️ 品番を選択してください")
+elif overall_agg_filtered.empty:
     st.warning("⚠️ 集計結果が空です。日付データや数値データを確認してください。")
-    st.dataframe(data[[date_col, "生産済", "生産時間[分]"]].head(10))
+    st.dataframe(data_filtered_overall[[date_col, "生産済", "生産時間[分]"]].head(10))
 else:
-    st.dataframe(overall_agg.head(10))
-st.plotly_chart(alt_dual_axis_chart(overall_agg, "総集計", show_items={
+    st.dataframe(overall_agg_filtered.head(10))
+    st.plotly_chart(alt_dual_axis_chart(overall_agg_filtered, "総集計", show_items={
     "生産済": show_seisansu,
     "生産時間[分]": show_seisan_time,
     "基準時間[分]": show_kijun_time,
     "工数": show_kosuu,
     "能率[%]": show_nouritsu
-}), use_container_width=True)
+}, y_autorange=y_autorange_mode), use_container_width=True, config={"scrollZoom": True})
 st.download_button(
     "総集計CSVをダウンロード",
     data=overall_agg.to_csv(index=False).encode("utf-8-sig"),
     file_name="overall_aggregate.csv",
     mime="text/csv"
 )
+
+st.divider()
 
 # ---- 各グラフ名ごと ----
 st.subheader("② 各グラフ名（条件シート C列以降）ごとの集計")
@@ -415,34 +449,56 @@ else:
     if "出荷品番" not in data.columns:
         st.error("データシートに '出荷品番' 列が見つかりません。列名をご確認ください。")
     else:
-        for gname in graph_names:
-            items = sorted(gmap[gname])
-            st.markdown(f"### グラフ名：**{gname}**")
+        # グラフ名選択
+        selected_gname = st.selectbox("表示するグラフを選択", options=graph_names, key="graph_select")
+        
+        st.subheader(f"📊 {selected_gname}")
+        
+        items = sorted(gmap[selected_gname])
+
+        
+        # 表示条件を expander で折りたたみ
+        with st.expander("🔧 表示条件（品番・日付・集計）", expanded=False):
+            selected_items = st.multiselect(
+                "表示する品番を選択",
+                options=items,
+                default=items,
+                key=f"hinban_select_{selected_gname}"
+            )
+            
             st.caption(f"対象 出荷品番（{len(items)}件）：{', '.join(items[:30])}{' ...' if len(items) > 30 else ''}")
 
-            # 出荷品番一致で抽出（型ブレ対策で文字列比較）
-            sub = data[data["出荷品番"].astype(str).str.strip().isin(items)].copy()
+        # CSV用：条件シート設定通りの全品番データ
+        sub_all = data[data["出荷品番"].astype(str).str.strip().isin(items)].copy()
+        if sub_all.empty:
+            st.warning(f"⚠️  '{selected_gname}': 該当出荷品番データなし")
+        elif not selected_items:
+            st.warning(f"⚠️  '{selected_gname}': 品番を選択してください")
+        else:
+            # グラフ用：選択された品番のみ
+            sub = data[data["出荷品番"].astype(str).str.strip().isin(selected_items)].copy()
             if sub.empty:
-                st.warning(f"⚠️  '{gname}': 該当出荷品番データなし")
-                continue
-
-            agg = aggregate_timeseries(sub, date_col=date_col, freq=freq, ma_window=(ma_window if ma_on else None))
-            
-            # 集計結果が空の場合のチェック
-            if agg.empty:
-                st.error(f"❌ '{gname}': 集計結果が空です（日付・数値データを確認してください）")
-                continue
-            
-            st.plotly_chart(alt_dual_axis_chart(agg, f"{gname}", show_items={
-                "生産済": show_seisansu,
-                "生産時間[分]": show_seisan_time,
-                "基準時間[分]": show_kijun_time,
-                "工数": show_kosuu,
-                "能率[%]": show_nouritsu
-            }), use_container_width=True)
-            st.download_button(
-                f"{gname} の集計CSVをダウンロード",
-                data=agg.to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"aggregate_{gname}.csv",
-                mime="text/csv"
-            )
+                st.warning(f"⚠️  '{selected_gname}': 選択した品番のデータなし")
+            else:
+                # CSV用集計（全品番）
+                agg_all = aggregate_timeseries(sub_all, date_col=date_col, freq=freq)
+                # グラフ用集計（選択品番）
+                agg = aggregate_timeseries(sub, date_col=date_col, freq=freq)
+                
+                # 集計結果が空の場合のチェック
+                if agg.empty:
+                    st.error(f"❌ '{selected_gname}': 集計結果が空です（日付・数値データを確認してください）")
+                else:
+                    st.plotly_chart(alt_dual_axis_chart(agg, f"{selected_gname}", show_items={
+                        "生産済": show_seisansu,
+                        "生産時間[分]": show_seisan_time,
+                        "基準時間[分]": show_kijun_time,
+                        "工数": show_kosuu,
+                        "能率[%]": show_nouritsu
+                    }, y_autorange=y_autorange_mode), use_container_width=True, config={"scrollZoom": True})
+                    st.download_button(
+                        f"{selected_gname} の集計CSVをダウンロード（全品番）",
+                        data=agg_all.to_csv(index=False).encode("utf-8-sig"),
+                        file_name=f"aggregate_{selected_gname}.csv",
+                        mime="text/csv"
+                    )

@@ -150,6 +150,70 @@ def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataF
         grouped["日付"] = pd.to_datetime(grouped["日付"], errors="coerce")
     return grouped
 
+def build_summary_stats(agg_df: pd.DataFrame, columns_list: list = None) -> dict:
+    """
+    集計結果から統計情報を抽出
+    入力：
+      - agg_df: 集計済みDataFrame
+      - columns_list: ['工数', '能率[%]']など対象列のリスト
+    出力：
+      {
+        '工数': {'合計': 100.5, '平均': 10.05, '最大': 25.3, '最小': 2.1},
+        '能率[%]': {'合計': 920.0, '平均': 92.0, '最大': 98.5, '最小': 85.0}
+      }
+    """
+    if columns_list is None:
+        columns_list = ['工数', '能率[%]']
+    
+    summary = {}
+    for col in columns_list:
+        if col in agg_df.columns:
+            valid_data = agg_df[col].dropna()
+            if len(valid_data) > 0:
+                summary[col] = {
+                    '合計': valid_data.sum(),
+                    '平均': valid_data.mean(),
+                    '最大': valid_data.max(),
+                    '最小': valid_data.min()
+                }
+    return summary
+
+def display_summary_metrics(agg_df: pd.DataFrame, columns_list: list = None):
+    """
+    統計情報をStreamlit metricsで表示
+    入力：
+      - agg_df: 集計済みDataFrame
+      - columns_list: ['工数', '能率[%]']など対象列のリスト
+    処理：
+      - DataFrame空チェック → メッセージ表示で return
+      - st.columns(2) で左右2列を作成
+      - 各列に工数 / 能率[%] を表示
+      - 各指標（合計・平均・最大・最小）を st.metric() で積み重ね
+    """
+    if columns_list is None:
+        columns_list = ['工数', '能率[%]']
+    
+    if agg_df.empty or len(agg_df) == 0:
+        st.info("集計結果がありません")
+        return
+    
+    stats = build_summary_stats(agg_df, columns_list)
+    
+    if not stats:
+        st.info("集計結果がありません")
+        return
+    
+    # 2列レイアウト
+    cols = st.columns(len(columns_list))
+    
+    for idx, col_name in enumerate(columns_list):
+        if col_name in stats:
+            with cols[idx]:
+                st.metric(f"{col_name} - 合計", f"{stats[col_name]['合計']:.1f}")
+                st.metric(f"{col_name} - 平均", f"{stats[col_name]['平均']:.1f}")
+                st.metric(f"{col_name} - 最大", f"{stats[col_name]['最大']:.1f}")
+                st.metric(f"{col_name} - 最小", f"{stats[col_name]['最小']:.1f}")
+
 def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = None, y_autorange: bool = False):
     """
     Plotlyを使った多軸グラフ
@@ -425,6 +489,7 @@ elif overall_agg_filtered.empty:
     st.dataframe(data_filtered_overall[[date_col, "生産済", "生産時間[分]"]].head(10))
 else:
     st.dataframe(overall_agg_filtered.head(10))
+    display_summary_metrics(overall_agg_filtered, ['工数', '能率[%]'])
     st.plotly_chart(alt_dual_axis_chart(overall_agg_filtered, "総集計", show_items={
     "生産済": show_seisansu,
     "生産時間[分]": show_seisan_time,
@@ -489,6 +554,7 @@ else:
                 if agg.empty:
                     st.error(f"❌ '{selected_gname}': 集計結果が空です（日付・数値データを確認してください）")
                 else:
+                    display_summary_metrics(agg, ['工数', '能率[%]'])
                     st.plotly_chart(alt_dual_axis_chart(agg, f"{selected_gname}", show_items={
                         "生産済": show_seisansu,
                         "生産時間[分]": show_seisan_time,

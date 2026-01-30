@@ -204,48 +204,35 @@ def normalize_conditions_by_position(cond_raw: pd.DataFrame):
 
 
 
-def build_graph_map_dynamic(cond: pd.DataFrame, graph_cols: list[str]) -> dict:
-
+def build_graph_map_dynamic(cond: pd.DataFrame, graph_cols: list[str], name_map: dict = None) -> dict:
     """
-
     グラフ名（セル値）→ {出荷品番,...} の辞書を生成。
-
     graph_cols の各列に書かれたセルの値を“グラフ名”として扱う。
-
+    name_map: {グラフ番号: グラフ名} の辞書。指定があれば番号を名前に変換する。
     """
-
     mapping: dict[str, set] = {}
-
     if "出荷品番" not in cond.columns or not graph_cols:
-
         return mapping
 
-
+    if name_map is None:
+        name_map = {}
 
     for _, row in cond.iterrows():
-
         item = str(row["出荷品番"]).strip()
-
         if not item or item.lower() == "nan":
-
             continue
-
         for c in graph_cols:
-
             g = row.get(c, None)
-
             if pd.isna(g):
-
                 continue
-
-            gname = str(g).strip()
-
-            if gname == "" or gname.lower() == "nan":
-
+            g_raw = str(g).strip()
+            if g_raw == "" or g_raw.lower() == "nan":
                 continue
-
+            
+            # グラフ名変換（マッピングにあれば置換、なければそのまま）
+            gname = name_map.get(g_raw, g_raw)
+            
             mapping.setdefault(gname, set()).add(item)
-
     return mapping
 
 
@@ -944,13 +931,28 @@ with st.spinner("Excelを読み込み中…"):
 
         st.stop()
 
+    # グラフ名シートの読み込み（オプション）
+    graph_name_map = {}
+    if "グラフ名" in xl.sheet_names:
+        try:
+            # ユーザー指定：A列=グラフ番号, B列=グラフ名
+            gname_df = xl.parse("グラフ名")
+            if len(gname_df.columns) >= 2:
+                for _, row in gname_df.iterrows():
+                    k = str(row[0]).strip()
+                    v = str(row[1]).strip()
+                    if k and k.lower() != "nan" and v and v.lower() != "nan":
+                        graph_name_map[k] = v
+        except Exception:
+            pass
+
 
 
 # 条件シート正規化（列位置ベース）
 
 cond, graph_cols = normalize_conditions_by_position(cond_raw)
 
-gmap = build_graph_map_dynamic(cond, graph_cols)
+gmap = build_graph_map_dynamic(cond, graph_cols, name_map=graph_name_map)
 
 graph_names = sorted(gmap.keys())
 

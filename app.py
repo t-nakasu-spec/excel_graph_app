@@ -158,27 +158,62 @@ def build_summary_stats(agg_df: pd.DataFrame, columns_list: list = None) -> dict
       - columns_list: ['工数', '能率[%]']など対象列のリスト
     出力：
       {
-        '工数': {'合計': 100.5, '平均': 10.05, '最大': 25.3, '最小': 2.1},
-        '能率[%]': {'合計': 920.0, '平均': 92.0, '最大': 98.5, '最小': 85.0}
+        '集計期間': '2024/01/01 ~ 2024/12/31',
+        '生産済': {'合計': 1000},
+        '生産時間[分]': {'合計': 15000},
+        '工数': {'平均': 10.05, '最大': 25.3, '最小': 2.1},
+        '能率[%]': {'平均': 92.0}
       }
     """
     if columns_list is None:
         columns_list = ['工数', '能率[%]']
     
     summary = {}
-    for col in columns_list:
-        if col in agg_df.columns:
-            valid_data = agg_df[col].dropna()
-            if len(valid_data) > 0:
-                summary[col] = {
-                    '合計': valid_data.sum(),
-                    '平均': valid_data.mean(),
-                    '最大': valid_data.max(),
-                    '最小': valid_data.min()
-                }
+    
+    # 集計期間（日付列の最小～最大）
+    if "日付" in agg_df.columns:
+        date_series = pd.to_datetime(agg_df["日付"], errors='coerce').dropna()
+        if len(date_series) > 0:
+            start_date = date_series.min().strftime('%m%d')
+            end_date = date_series.max().strftime('%m%d')
+            summary["集計期間"] = f"{start_date}-{end_date}"
+        else:
+            summary["集計期間"] = "N/A"
+    else:
+        summary["集計期間"] = "N/A"
+    
+    # 生産済の合計
+    seisan_sum = ensure_numeric(agg_df.get("生産済", pd.Series(dtype=float)), 0).sum()
+    summary["生産済"] = {'合計': seisan_sum}
+    
+    # 生産時間[分]の合計
+    seisan_time_sum = ensure_numeric(agg_df.get("生産時間[分]", pd.Series(dtype=float)), 0).sum()
+    summary["生産時間[分]"] = {'合計': seisan_time_sum}
+    
+    # 工数の平均：生産時間合計 ÷ 生産済合計
+    if "工数" in columns_list:
+        kosuu_avg = seisan_time_sum / seisan_sum if seisan_sum > 0 else 0.0
+
+        kosuu_series = agg_df.get("工数", pd.Series(dtype=float)).replace([np.inf, -np.inf], np.nan).dropna()
+        kosuu_max = kosuu_series.max() if len(kosuu_series) > 0 else 0.0
+        kosuu_min = kosuu_series.min() if len(kosuu_series) > 0 else 0.0
+
+        summary["工数"] = {
+            '平均': kosuu_avg,
+            '最大': kosuu_max,
+            '最小': kosuu_min
+        }
+
+    # 能率の平均：基準時間合計 ÷ 生産時間合計 × 100
+    if "能率[%]" in columns_list:
+        kijun_sum = ensure_numeric(agg_df.get("基準時間[分]", pd.Series(dtype=float)), 0).sum()
+        nouritsu_avg = (kijun_sum / seisan_time_sum * 100) if seisan_time_sum > 0 else 0.0
+        summary["能率[%]"] = {
+            '平均': nouritsu_avg
+        }
     return summary
 
-def display_summary_metrics(agg_df: pd.DataFrame, columns_list: list = None):
+def display_summary_metrics(agg_df: pd.DataFrame, columns_list: list = None, freq: str = "D"):
     """
     統計情報をStreamlit metricsで表示
     入力：
@@ -186,9 +221,8 @@ def display_summary_metrics(agg_df: pd.DataFrame, columns_list: list = None):
       - columns_list: ['工数', '能率[%]']など対象列のリスト
     処理：
       - DataFrame空チェック → メッセージ表示で return
-      - st.columns(2) で左右2列を作成
-      - 各列に工数 / 能率[%] を表示
-      - 各指標（合計・平均・最大・最小）を st.metric() で積み重ね
+      - st.columns(7) で7列を作成
+      - 集計期間、生産済-合計、生産時間[分]-合計、工数-平均、工数-最大、工数-最小、能率[%]-平均 を横に並べて表示
     """
     if columns_list is None:
         columns_list = ['工数', '能率[%]']
@@ -203,16 +237,80 @@ def display_summary_metrics(agg_df: pd.DataFrame, columns_list: list = None):
         st.info("集計結果がありません")
         return
     
-    # 2列レイアウト
-    cols = st.columns(len(columns_list))
+    # 7列レイアウト：集計期間、生産済-合計、生産時間[分]-合計、工数-平均、工数-最大、工数-最小、能率[%]-平均
+    cols = st.columns([2, 1, 1, 1, 1, 1, 1])
     
-    for idx, col_name in enumerate(columns_list):
-        if col_name in stats:
-            with cols[idx]:
-                st.metric(f"{col_name} - 合計", f"{stats[col_name]['合計']:.1f}")
-                st.metric(f"{col_name} - 平均", f"{stats[col_name]['平均']:.1f}")
-                st.metric(f"{col_name} - 最大", f"{stats[col_name]['最大']:.1f}")
-                st.metric(f"{col_name} - 最小", f"{stats[col_name]['最小']:.1f}")
+    # 1列目：集計期間
+    with cols[0]:
+        st.metric("期間", stats.get("集計期間", "N/A"))
+    
+    # 2列目：生産済-合計
+    with cols[1]:
+        if "生産済" in stats:
+            st.metric("生産済 - 合計", f"{stats['生産済']['合計']:.0f}")
+    
+    # 3列目：生産時間[分]-合計
+    with cols[2]:
+        if "生産時間[分]" in stats:
+            st.metric("生産時間[分] - 合計", f"{stats['生産時間[分]']['合計']:.1f}")
+    
+    # 4～7列目：工数と能率
+    metrics_to_display = [
+        ("工数", "平均", 3),
+        ("工数", "最大", 4),
+        ("工数", "最小", 5),
+        ("能率[%]", "平均", 6)
+    ]
+    
+    for col_name, stat_name, col_idx in metrics_to_display:
+        if col_name in stats and stat_name in stats[col_name]:
+            with cols[col_idx]:
+                st.metric(f"{col_name} - {stat_name}", f"{stats[col_name][stat_name]:.1f}")
+
+    # 週次・月次集計の場合、直近3期間分を内訳表示
+    if freq in ["W", "M"]:
+        period_label = "3週" if freq == "W" else "3ヶ月"
+        st.markdown("---")
+        st.markdown(f"**▼ 直近{period_label}分の内訳**")
+        
+        # 日付降順（新しい順）で3件取得
+        if "日付" in agg_df.columns:
+            recent_df = agg_df.sort_values("日付", ascending=False).head(3)
+            
+            for _, row in recent_df.iterrows():
+                cols = st.columns([2, 1, 1, 1, 1, 1, 1])
+                
+                # 日付整形
+                d_val = row["日付"]
+                if pd.notna(d_val):
+                    if freq == "M":
+                        d_str = d_val.strftime('%Y年%m月')
+                    else:
+                        d_str = d_val.strftime('%Y-%m-%d')
+                else:
+                    d_str = "N/A"
+                
+                # 値取得
+                seisan = row.get("生産済", 0)
+                time_min = row.get("生産時間[分]", 0)
+                kosu = row.get("工数", 0)
+                eff = row.get("能率[%]", 0)
+
+                # 行表示
+                with cols[0]:
+                    st.write(f"**{d_str}**")
+                with cols[1]:
+                    st.write(f"{seisan:,.0f}")
+                with cols[2]:
+                    st.write(f"{time_min:,.1f}")
+                with cols[3]:
+                    st.write(f"{kosu:.1f}")
+                with cols[4]:
+                    st.write("-") # 集計済の単位データのため最大最小は算出不可
+                with cols[5]:
+                    st.write("-")
+                with cols[6]:
+                    st.write(f"{eff:.1f}")
 
 def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = None, y_autorange: bool = False):
     """
@@ -486,10 +584,12 @@ if not selected_hinban_overall:
     st.warning("⚠️ 品番を選択してください")
 elif overall_agg_filtered.empty:
     st.warning("⚠️ 集計結果が空です。日付データや数値データを確認してください。")
-    st.dataframe(data_filtered_overall[[date_col, "生産済", "生産時間[分]"]].head(10))
+    with st.expander("🔍 総集計の行データ（先頭10行）", expanded=False):
+        st.dataframe(data_filtered_overall[[date_col, "生産済", "生産時間[分]"]].head(10))
 else:
-    st.dataframe(overall_agg_filtered.head(10))
-    display_summary_metrics(overall_agg_filtered, ['工数', '能率[%]'])
+    with st.expander("🔍 総集計の行データ（先頭10行）", expanded=False):
+        st.dataframe(overall_agg_filtered.head(10))
+    display_summary_metrics(overall_agg_filtered, ['工数', '能率[%]'], freq=freq)
     st.plotly_chart(alt_dual_axis_chart(overall_agg_filtered, "総集計", show_items={
     "生産済": show_seisansu,
     "生産時間[分]": show_seisan_time,
@@ -545,6 +645,10 @@ else:
             if sub.empty:
                 st.warning(f"⚠️  '{selected_gname}': 選択した品番のデータなし")
             else:
+                with st.expander("🔍 選択品番の生データ（先頭50行）", expanded=False):
+                    st.caption(f"件数: {len(sub)} 行")
+                    st.dataframe(sub.head(50), use_container_width=True)
+
                 # CSV用集計（全品番）
                 agg_all = aggregate_timeseries(sub_all, date_col=date_col, freq=freq)
                 # グラフ用集計（選択品番）
@@ -554,7 +658,7 @@ else:
                 if agg.empty:
                     st.error(f"❌ '{selected_gname}': 集計結果が空です（日付・数値データを確認してください）")
                 else:
-                    display_summary_metrics(agg, ['工数', '能率[%]'])
+                    display_summary_metrics(agg, ['工数', '能率[%]'], freq=freq)
                     st.plotly_chart(alt_dual_axis_chart(agg, f"{selected_gname}", show_items={
                         "生産済": show_seisansu,
                         "生産時間[分]": show_seisan_time,

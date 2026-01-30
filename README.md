@@ -10,7 +10,7 @@
 
 ## 💻 ローカル環境での実行
 
-### 📋 必要な環境
+### 📋 必要なローカル環境
 - Windows 10/11
 - Python 3.9 以上（https://www.python.org/downloads/ からインストール）
 

@@ -12,6 +12,7 @@ __pycache__/
 
 # Streamlitキャッシュ
 .streamlit/
+!.streamlit/config.toml
 
 # IDEキャッシュ
 .vscode/

@@ -615,60 +615,72 @@ else:
         st.error("データシートに '出荷品番' 列が見つかりません。列名をご確認ください。")
     else:
         # グラフ名選択
-        selected_gname = st.selectbox("表示するグラフを選択", options=graph_names, key="graph_select")
-        
-        st.subheader(f"📊 {selected_gname}")
-        
-        items = sorted(gmap[selected_gname])
+        # 全グラフ表示モード切り替え
+        show_all = st.checkbox("全グラフをまとめて表示", value=False)
 
-        
-        # 表示条件を expander で折りたたみ
-        with st.expander("🔧 表示条件（品番・日付・集計）", expanded=False):
-            selected_items = st.multiselect(
-                "表示する品番を選択",
-                options=items,
-                default=items,
-                key=f"hinban_select_{selected_gname}"
-            )
-            
-            st.caption(f"対象 出荷品番（{len(items)}件）：{', '.join(items[:30])}{' ...' if len(items) > 30 else ''}")
-
-        # CSV用：条件シート設定通りの全品番データ
-        sub_all = data[data["出荷品番"].astype(str).str.strip().isin(items)].copy()
-        if sub_all.empty:
-            st.warning(f"⚠️  '{selected_gname}': 該当出荷品番データなし")
-        elif not selected_items:
-            st.warning(f"⚠️  '{selected_gname}': 品番を選択してください")
+        if show_all:
+            target_graphs = graph_names
         else:
-            # グラフ用：選択された品番のみ
-            sub = data[data["出荷品番"].astype(str).str.strip().isin(selected_items)].copy()
-            if sub.empty:
-                st.warning(f"⚠️  '{selected_gname}': 選択した品番のデータなし")
-            else:
-                with st.expander("🔍 選択品番の生データ（先頭50行）", expanded=False):
-                    st.caption(f"件数: {len(sub)} 行")
-                    st.dataframe(sub.head(50), use_container_width=True)
+            # 単一選択
+            target_graphs = [st.selectbox("表示するグラフを選択", options=graph_names, key="graph_select")]
 
-                # CSV用集計（全品番）
-                agg_all = aggregate_timeseries(sub_all, date_col=date_col, freq=freq)
-                # グラフ用集計（選択品番）
-                agg = aggregate_timeseries(sub, date_col=date_col, freq=freq)
+        # ループで描画
+        for i, selected_gname in enumerate(target_graphs):
+            if i > 0:
+                st.markdown("---")
+            
+            st.subheader(f"📊 {selected_gname}")
+            
+            items = sorted(gmap[selected_gname])
+
+            # 表示条件を expander で折りたたみ
+            with st.expander(f"🔧 {selected_gname}: 表示条件（品番・日付・集計）", expanded=False):
+                selected_items = st.multiselect(
+                    "表示する品番を選択",
+                    options=items,
+                    default=items,
+                    key=f"hinban_select_{selected_gname}"
+                )
                 
-                # 集計結果が空の場合のチェック
-                if agg.empty:
-                    st.error(f"❌ '{selected_gname}': 集計結果が空です（日付・数値データを確認してください）")
+                st.caption(f"対象 出荷品番（{len(items)}件）：{', '.join(items[:30])}{' ...' if len(items) > 30 else ''}")
+
+            # CSV用：条件シート設定通りの全品番データ
+            sub_all = data[data["出荷品番"].astype(str).str.strip().isin(items)].copy()
+            if sub_all.empty:
+                st.warning(f"⚠️  '{selected_gname}': 該当出荷品番データなし")
+            elif not selected_items:
+                st.warning(f"⚠️  '{selected_gname}': 品番を選択してください")
+            else:
+                # グラフ用：選択された品番のみ
+                sub = data[data["出荷品番"].astype(str).str.strip().isin(selected_items)].copy()
+                if sub.empty:
+                    st.warning(f"⚠️  '{selected_gname}': 選択した品番のデータなし")
                 else:
-                    display_summary_metrics(agg, ['工数', '能率[%]'], freq=freq)
-                    st.plotly_chart(alt_dual_axis_chart(agg, f"{selected_gname}", show_items={
-                        "生産済": show_seisansu,
-                        "生産時間[分]": show_seisan_time,
-                        "基準時間[分]": show_kijun_time,
-                        "工数": show_kosuu,
-                        "能率[%]": show_nouritsu
-                    }, y_autorange=y_autorange_mode), use_container_width=True, config={"scrollZoom": True})
-                    st.download_button(
-                        f"{selected_gname} の集計CSVをダウンロード（全品番）",
-                        data=agg_all.to_csv(index=False).encode("utf-8-sig"),
-                        file_name=f"aggregate_{selected_gname}.csv",
-                        mime="text/csv"
-                    )
+                    with st.expander(f"🔍 {selected_gname}: 選択品番の生データ（先頭50行）", expanded=False):
+                        st.caption(f"件数: {len(sub)} 行")
+                        st.dataframe(sub.head(50), use_container_width=True)
+
+                    # CSV用集計（全品番）
+                    agg_all = aggregate_timeseries(sub_all, date_col=date_col, freq=freq)
+                    # グラフ用集計（選択品番）
+                    agg = aggregate_timeseries(sub, date_col=date_col, freq=freq)
+                    
+                    # 集計結果が空の場合のチェック
+                    if agg.empty:
+                        st.error(f"❌ '{selected_gname}': 集計結果が空です（日付・数値データを確認してください）")
+                    else:
+                        display_summary_metrics(agg, ['工数', '能率[%]'], freq=freq)
+                        st.plotly_chart(alt_dual_axis_chart(agg, f"{selected_gname}", show_items={
+                            "生産済": show_seisansu,
+                            "生産時間[分]": show_seisan_time,
+                            "基準時間[分]": show_kijun_time,
+                            "工数": show_kosuu,
+                            "能率[%]": show_nouritsu
+                        }, y_autorange=y_autorange_mode), use_container_width=True, config={"scrollZoom": True}, key=f"chart_{selected_gname}")
+                        st.download_button(
+                            f"{selected_gname} の集計CSVをダウンロード（全品番）",
+                            data=agg_all.to_csv(index=False).encode("utf-8-sig"),
+                            file_name=f"aggregate_{selected_gname}.csv",
+                            mime="text/csv",
+                            key=f"btn_{selected_gname}"
+                        )

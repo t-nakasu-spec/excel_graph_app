@@ -1,6 +1,16 @@
 # Excel グラフ化ツール
 
-## 📋 必要な環境
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/)
+
+## 🌐 オンライン版（推奨）
+このアプリケーションは **Streamlit Community Cloud** で公開されています。
+インストール不要でブラウザから直接使用できます。
+
+🔗 **[アプリを開く](https://share.streamlit.io/)** （デプロイ後にURLを更新してください）
+
+## 💻 ローカル環境での実行
+
+### 📋 必要な環境
 - Windows 10/11
 - Python 3.9 以上（https://www.python.org/downloads/ からインストール）
 
@@ -48,3 +58,22 @@ https://www.python.org/downloads/ から最新版をインストール
 ### グラフが表示されない場合
 - 日付列にデータが入っているか確認
 - 生産済、所要時間に数値が入っているか確認
+
+## 🚀 Streamlit Community Cloud へのデプロイ方法
+
+このアプリケーションを自分のStreamlit Community Cloudアカウントでデプロイできます：
+
+1. [Streamlit Community Cloud](https://streamlit.io/cloud) にアクセスしてGitHubアカウントでログイン
+2. 「New app」をクリック
+3. このリポジトリ（`t-nakasu-spec/excel_graph_app`）を選択
+4. メインファイルとして `app.py` を指定
+5. 「Deploy」をクリック
+
+デプロイ後、自動的に公開URLが生成されます。
+
+### デプロイの特徴
+- ✅ 無料で公開可能
+- ✅ HTTPSで安全にアクセス
+- ✅ 自動的にSSL証明書を提供
+- ✅ リポジトリ更新時に自動再デプロイ
+- ✅ インターネット経由でどこからでもアクセス可能

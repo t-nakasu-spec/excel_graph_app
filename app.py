@@ -109,6 +109,35 @@ def compute_minutes(soyo_time: pd.Series, mode: str) -> pd.Series:
     return x * 1440.0 if mode == "excel_time" else x
 
 
+def normalize_graph_key(val) -> str:
+
+    """グラフ番号の表記ゆれを統一（例: 24.0 → 24）"""
+
+    if pd.isna(val):
+
+        return ""
+
+    if isinstance(val, (int, np.integer)):
+
+        return str(val)
+
+    if isinstance(val, (float, np.floating)):
+
+        return str(int(val)) if float(val).is_integer() else str(val)
+
+    s = str(val).strip()
+
+    try:
+
+        f = float(s)
+
+        return str(int(f)) if f.is_integer() else s
+
+    except Exception:
+
+        return s
+
+
 
 def pick_default_date_col(df: pd.DataFrame) -> str:
 
@@ -174,13 +203,11 @@ def normalize_conditions_by_position(cond_raw: pd.DataFrame):
 
     # C以降 → すべてグラフ列として扱う（列名は何でも可）
 
-    # 空列フィルタを一度だけ実行
-
     graph_cols = []
 
     if len(cols) >= 3:
 
-        graph_cols = [c for c in cols[2:] if cond[c].notna().any()]
+        graph_cols = list(cols[2:])
 
 
 
@@ -225,7 +252,7 @@ def build_graph_map_dynamic(cond: pd.DataFrame, graph_cols: list[str], name_map:
             g = row.get(c, None)
             if pd.isna(g):
                 continue
-            g_raw = str(g).strip()
+            g_raw = normalize_graph_key(g)
             if g_raw == "" or g_raw.lower() == "nan":
                 continue
             
@@ -939,7 +966,7 @@ with st.spinner("Excelを読み込み中…"):
             gname_df = xl.parse("グラフ名")
             if len(gname_df.columns) >= 2:
                 for _, row in gname_df.iterrows():
-                    k = str(row[0]).strip()
+                    k = normalize_graph_key(row[0])
                     v = str(row[1]).strip()
                     if k and k.lower() != "nan" and v and v.lower() != "nan":
                         graph_name_map[k] = v

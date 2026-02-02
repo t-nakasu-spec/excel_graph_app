@@ -139,6 +139,166 @@ def normalize_graph_key(val) -> str:
 
 
 
+def apply_quick_date_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
+
+    """
+
+    クイック期間ボタン + 日付ピッカーで期間を決定し、dfをフィルタして返す。
+
+    - df.index は DatetimeIndex を想定（必要なら変換）
+
+    - セッション状態でクイック選択と手動日付入力の競合を回避
+
+    """
+
+    if df is None or df.empty:
+
+        return df
+
+
+
+    _df = df.copy()
+
+    if not isinstance(_df.index, pd.DatetimeIndex):
+
+        _df.index = pd.to_datetime(_df.index, errors="coerce")
+
+    _df = _df[_df.index.notna()].sort_index()
+
+    if _df.empty:
+
+        return _df
+
+
+
+    if getattr(_df.index, "tz", None) is not None:
+
+        _df.index = _df.index.tz_localize(None)
+
+
+
+    today = pd.Timestamp.today().normalize()
+
+    date_min = _df.index.min().normalize()
+
+    date_max = _df.index.max().normalize()
+
+
+
+    quick_options = ["指定なし", "直近7日", "直近30日", "今月", "先月"]
+
+    quick_key = f"{key_prefix}_quick"
+
+    start_key = f"{key_prefix}_start"
+
+    end_key = f"{key_prefix}_end"
+
+    last_quick_key = f"{key_prefix}_last_quick"
+
+
+
+    if quick_key not in st.session_state:
+
+        st.session_state[quick_key] = "指定なし"
+
+    if start_key not in st.session_state:
+
+        st.session_state[start_key] = date_min.date()
+
+    if end_key not in st.session_state:
+
+        st.session_state[end_key] = date_max.date()
+
+    if last_quick_key not in st.session_state:
+
+        st.session_state[last_quick_key] = st.session_state[quick_key]
+
+
+
+    st.markdown("**期間選択**")
+
+    st.radio("クイック期間選択", options=quick_options, key=quick_key, horizontal=True)
+
+
+
+    if st.session_state[quick_key] != st.session_state[last_quick_key]:
+
+        q = st.session_state[quick_key]
+
+        if q == "直近7日":
+
+            start = today - pd.Timedelta(days=6)
+
+            end = today
+
+        elif q == "直近30日":
+
+            start = today - pd.Timedelta(days=29)
+
+            end = today
+
+        elif q == "今月":
+
+            start = today.replace(day=1)
+
+            end = today
+
+        elif q == "先月":
+
+            first_this_month = today.replace(day=1)
+
+            end = first_this_month - pd.Timedelta(days=1)
+
+            start = end.replace(day=1)
+
+        else:
+
+            start = date_min
+
+            end = date_max
+
+
+
+        st.session_state[start_key] = start.date()
+
+        st.session_state[end_key] = end.date()
+
+        st.session_state[last_quick_key] = q
+
+
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.date_input("開始日", value=st.session_state[start_key], key=start_key)
+
+    with col2:
+
+        st.date_input("終了日", value=st.session_state[end_key], key=end_key)
+
+
+
+    start_date = st.session_state[start_key]
+
+    end_date = st.session_state[end_key]
+
+
+
+    if start_date and end_date and start_date > end_date:
+
+        start_date, end_date = end_date, start_date
+
+
+
+    idx_dates = _df.index.date
+
+    mask = (idx_dates >= start_date) & (idx_dates <= end_date)
+
+    return _df.loc[mask]
+
+
+
 def pick_default_date_col(df: pd.DataFrame) -> str:
 
     if "状態" in df.columns:
@@ -1385,21 +1545,49 @@ else:
 
                     else:
 
-                        display_summary_metrics(agg, ['工数', '能率[%]'], freq=freq)
+                        # 期間フィルタ（クイック期間 + 日付ピッカー）
 
-                        st.plotly_chart(alt_dual_axis_chart(agg, f"{selected_gname}", show_items={
+                        if "日付" in agg.columns:
 
-                            "生産済": show_seisansu,
+                            agg_indexed = agg.set_index("日付")
 
-                            "生産時間[分]": show_seisan_time,
+                        else:
 
-                            "基準時間[分]": show_kijun_time,
+                            agg_indexed = agg.copy()
 
-                            "工数": show_kosuu,
 
-                            "能率[%]": show_nouritsu
 
-                        }, y_autorange=y_autorange_mode), use_container_width=True, config={"scrollZoom": True}, key=f"chart_{selected_gname}")
+                        filtered_indexed = apply_quick_date_filter(agg_indexed, key_prefix=f"period_{selected_gname}")
+
+                        filtered_agg = filtered_indexed.reset_index()
+
+                        if "日付" in filtered_agg.columns:
+
+                            filtered_agg["日付"] = pd.to_datetime(filtered_agg["日付"], errors="coerce")
+
+
+
+                        if filtered_agg.empty:
+
+                            st.warning(f"⚠️  '{selected_gname}': 指定期間内のデータがありません")
+
+                        else:
+
+                            display_summary_metrics(filtered_agg, ['工数', '能率[%]'], freq=freq)
+
+                            st.plotly_chart(alt_dual_axis_chart(filtered_agg, f"{selected_gname}", show_items={
+
+                                "生産済": show_seisansu,
+
+                                "生産時間[分]": show_seisan_time,
+
+                                "基準時間[分]": show_kijun_time,
+
+                                "工数": show_kosuu,
+
+                                "能率[%]": show_nouritsu
+
+                            }, y_autorange=y_autorange_mode), use_container_width=True, config={"scrollZoom": True}, key=f"chart_{selected_gname}")
 
                         st.download_button(
 

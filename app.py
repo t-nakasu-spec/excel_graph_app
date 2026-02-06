@@ -996,7 +996,8 @@ with st.sidebar:
 
 
 
-    uploaded = st.file_uploader("Excelファイル（.xlsx）をアップロード", type=["xlsx"])
+    uploaded = st.file_uploader("ミノベサン（.xlsx）をアップロード", type=["xlsx"])
+    uploaded_sino = st.file_uploader("追加データ（オプション: sinoPなど）", type=["xlsx"], key="sino_uploader")
 
 
 
@@ -1111,6 +1112,11 @@ with st.spinner("Excelを読み込み中…"):
         cond_raw = xl.parse(cond_sheet_name, header=int(cond_header_idx))
 
         data_raw = xl.parse(data_sheet_name, header=int(data_header_idx))
+        
+        # 列名の空白除去（不整合防止）
+        if not data_raw.empty:
+            data_raw.columns = [str(c).strip() for c in data_raw.columns]
+
 
     except Exception as e:
 
@@ -1132,6 +1138,34 @@ with st.spinner("Excelを読み込み中…"):
                         graph_name_map[k] = v
         except Exception:
             pass
+    
+    # -----------------------------
+    # 追加: 手動アップロードされたファイルの読み込みと統合
+    # -----------------------------
+    sino_mapping_list = []  # (出荷品番, グラフ番号) のリスト
+
+    if uploaded_sino:
+        try:
+            # Sheet "33" を読み込み
+            sino_df = pd.read_excel(uploaded_sino, sheet_name="33")
+            if not sino_df.empty:
+                # 列名正規化
+                sino_df.columns = [str(c).strip() for c in sino_df.columns]
+
+                # "条件" 列が無い場合、シート名 "33" を条件番号として付与
+                if "条件" not in sino_df.columns:
+                     sino_df["条件"] = 33
+
+                data_raw = pd.concat([data_raw, sino_df], ignore_index=True)
+                
+                # マッピング情報の抽出
+                if "出荷品番" in sino_df.columns:
+                    # 必要な列だけ抽出してリスト化
+                    for _, r in sino_df.iterrows():
+                        sino_mapping_list.append((r["出荷品番"], r["条件"]))
+
+        except Exception as e:
+            st.warning(f"追加データの読み込みに失敗しました: {e}")
 
 
 
@@ -1141,7 +1175,22 @@ cond, graph_cols = normalize_conditions_by_position(cond_raw)
 
 gmap = build_graph_map_dynamic(cond, graph_cols, name_map=graph_name_map)
 
+# sinoPのマッピング情報を追記
+for item_val, g_val in sino_mapping_list:
+    item = str(item_val).strip()
+    if not item or item.lower() == "nan":
+        continue
+    
+    g_raw = normalize_graph_key(g_val)
+    if g_raw == "" or g_raw.lower() == "nan":
+        continue
+
+    # グラフ名変換
+    gname = graph_name_map.get(g_raw, g_raw)
+    gmap.setdefault(gname, set()).add(item)
+
 graph_names = sorted(gmap.keys())
+
 
 
 
@@ -1307,16 +1356,15 @@ with st.expander("🔧 表示条件（品番）", expanded=False):
 
     if all_hinban:
 
+        # 品番リストが変更されたときに選択状態をリセットするために、keyにハッシュを含める
+        import hashlib
+        options_hash = hashlib.md5(str(all_hinban).encode()).hexdigest()
+        
         selected_hinban_overall = st.multiselect(
-
             "表示する品番を選択",
-
             options=all_hinban,
-
             default=all_hinban,
-
-            key="overall_hinban_select"
-
+            key=f"overall_hinban_select_{options_hash}"
         )
 
     else:

@@ -39,7 +39,8 @@ def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataF
     _df["基準時間[分]"] = ensure_numeric(_df.get("基準時間[分]", pd.Series(dtype=float)), 0)
     _df["能率[%]"] = ensure_numeric(_df.get("能率[%]", pd.Series(dtype=float)), 0)
     _df = _df.set_index(date_col).sort_index()
-    grouped = _df.resample(freq).agg({"生産済": "sum", "生産時間[分]": "sum", "基準時間[分]": "sum", "能率[%]": "mean"})
+    grouped = _df.resample(freq).agg({"生産済": "sum", "生産時間[分]": "sum", "基準時間[分]": "sum"})
+    grouped["能率[%]"] = np.where(grouped["生産時間[分]"] > 0, (grouped["基準時間[分]"] / grouped["生産時間[分]"]) * 100, 0.0)
     grouped["工数"] = np.where(grouped["生産済"] > 0, grouped["生産時間[分]"] / grouped["生産済"], 0.0)
     grouped = grouped.reset_index().rename(columns={date_col: "日付"})
     if "日付" in grouped.columns:
@@ -91,8 +92,24 @@ def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = Non
             tickfont=dict(color='#F39C12'),
             showticklabels=show_items.get("工数", True)
         ),
-        yaxis3=dict(title="能率[%]", side='right', overlaying='y', anchor='free', position=1.0, title_font=dict(color='#E74C3C'), tickfont=dict(color='#E74C3C'), range=[0, 130]), # 0-130に固定
-        margin=dict(l=50, r=100, t=50, b=50),
+        yaxis3=dict(
+            title="能率[%]" if height > 300 else None, 
+            side='right', 
+            overlaying='y', 
+            anchor='free', 
+            position=1.0, 
+            title_font=dict(color='#E74C3C', size=10 if height <= 300 else 14), 
+            tickfont=dict(color='#E74C3C', size=9 if height <= 300 else 12), 
+            range=[0, 130]
+        ),
+        margin=dict(l=50, r=80 if height <= 300 else 100, t=50, b=50),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
         hovermode='x unified'
     )
     return fig
@@ -117,31 +134,43 @@ analysis_mode = st.sidebar.radio(
     ["先月の小グラフ一覧", "グラフ名別サマリー一覧"]
 )
 
-# 期間計算（先月）
-today = pd.Timestamp.today().normalize()
-first_this_month = today.replace(day=1)
-last_month_end = first_this_month - pd.Timedelta(days=1)
-last_month_start = last_month_end.replace(day=1)
-
-# 先月データフィルタ
+# 分析対象月の選択（動的）
 df_raw[date_col] = parse_datetime_series(df_raw[date_col])
-df_last_month = df_raw[(df_raw[date_col] >= last_month_start) & (df_raw[date_col] <= last_month_end)].copy()
+all_dates = df_raw[date_col].dropna()
+if all_dates.empty:
+    st.warning("日付データがありません。")
+    st.stop()
 
-if df_last_month.empty:
-    st.warning(f"先月（{last_month_start.date()} ～ {last_month_end.date()}）のデータが見つかりません。")
+# 利用可能な年月を抽出 (YYYY-MM形式)
+available_months = sorted(list(set(all_dates.dt.strftime("%Y-%m"))), reverse=True)
+selected_month_str = st.sidebar.selectbox("分析対象年月を選択", options=available_months, index=0)
+
+# 対象月の範囲計算
+sel_dt = datetime.strptime(selected_month_str, "%Y-%m")
+month_start = pd.Timestamp(sel_dt).replace(day=1)
+month_end = (month_start + pd.offsets.MonthEnd(0)).replace(hour=23, minute=59, second=59)
+
+# データフォルダ
+df_selected = df_raw[(df_raw[date_col] >= month_start) & (df_raw[date_col] <= month_end)].copy()
+
+if df_selected.empty:
+    st.warning(f"選択された月（{selected_month_str}）のデータが見つかりません。")
     st.stop()
 
 if analysis_mode == "先月の小グラフ一覧":
-    st.subheader(f"📊 先月の小グラフ一覧 ({last_month_start.date()} ～ {last_month_end.date()})")
+    st.subheader(f"📊 月間小グラフ一覧 ({selected_month_str})")
     
     # グラフ名ごとの集計と能率平均の算出
     graph_data_list = []
     for gname, items in gmap.items():
-        sub = df_last_month[df_last_month["出荷品番"].astype(str).str.strip().isin(items)].copy()
+        sub = df_selected[df_selected["出荷品番"].astype(str).str.strip().isin(items)].copy()
         if not sub.empty:
             agg = aggregate_timeseries(sub, date_col=date_col, freq="D")
             if not agg.empty:
-                avg_nouritsu = agg["能率[%]"].mean()
+                # 期間全体の加重平均能率
+                s_time = sub["生産時間[分]"].sum()
+                s_kijun = sub["基準時間[分]"].sum()
+                avg_nouritsu = (s_kijun / s_time * 100) if s_time > 0 else 0.0
                 graph_data_list.append({"gname": gname, "agg": agg, "avg_nouritsu": avg_nouritsu})
     
     # 能率平均昇順でソート
@@ -164,11 +193,11 @@ if analysis_mode == "先月の小グラフ一覧":
                 st.plotly_chart(fig, use_container_width=True, key=f"chart_{i}")
 
 elif analysis_mode == "グラフ名別サマリー一覧":
-    st.subheader(f"📋 グラフ名別サマリー一覧 ({last_month_start.date()} ～ {last_month_end.date()})")
+    st.subheader(f"📋 グラフ名別サマリー一覧 ({selected_month_str})")
     
     summary_list = []
     for gname, items in gmap.items():
-        sub = df_last_month[df_last_month["出荷品番"].astype(str).str.strip().isin(items)].copy()
+        sub = df_selected[df_selected["出荷品番"].astype(str).str.strip().isin(items)].copy()
         if not sub.empty:
             s_seisan = sub["生産済"].sum()
             s_time = sub["生産時間[分]"].sum()

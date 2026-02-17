@@ -38,6 +38,7 @@ def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataF
     _df["生産時間[分]"] = ensure_numeric(_df.get("生産時間[分]", pd.Series(dtype=float)), 0)
     _df["基準時間[分]"] = ensure_numeric(_df.get("基準時間[分]", pd.Series(dtype=float)), 0)
     _df["能率[%]"] = ensure_numeric(_df.get("能率[%]", pd.Series(dtype=float)), 0)
+    _df = _df.set_index(date_col).sort_index()
     grouped = _df.resample(freq).agg({"生産済": "sum", "生産時間[分]": "sum", "基準時間[分]": "sum"})
     grouped["能率[%]"] = np.where(grouped["生産時間[分]"] > 0, (grouped["基準時間[分]"] / grouped["生産時間[分]"]) * 100, np.nan)
     grouped["工数"] = np.where(grouped["生産済"] > 0, grouped["生産時間[分]"] / grouped["生産済"], np.nan)

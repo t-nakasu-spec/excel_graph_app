@@ -1727,7 +1727,11 @@ if "作業者" not in data.columns:
     st.info("データに '作業者' 列が見つかりません。")
 else:
     # 作業者リスト取得（空白除外）
-    workers = sorted([str(x).strip() for x in data["作業者"].unique() if str(x).strip() != "" and str(x).lower() != "nan"])
+    workers = sorted([
+        str(x).strip()
+        for x in data["作業者"].unique()
+        if str(x).strip() != "" and str(x).lower() != "nan"
+    ])
     
     if not workers:
         st.warning("有効な作業者データが見つかりません。")
@@ -1739,17 +1743,21 @@ else:
             target_workers = workers
         else:
             # 単一選択
-            target_workers = [st.selectbox("表示する作業者を選択", options=workers, key="worker_select")]
+            target_workers = [
+                st.selectbox("表示する作業者を選択", options=workers, key="worker_select")
+            ]
 
         # ループで描画
         for i, selected_worker in enumerate(target_workers):
             if i > 0:
                 st.markdown("---")
             
-            st.subheader(f"🧑‍🏭 {selected_worker}")
+            st.subheader(f"👷 {selected_worker}")
             
             # フィルタリング（作業者一致）
-            sub_worker = data[data["作業者"].astype(str).str.strip() == selected_worker].copy()
+            sub_worker = data[
+                data["作業者"].astype(str).str.strip() == selected_worker
+            ].copy()
             
             if sub_worker.empty:
                 st.warning(f"⚠️  '{selected_worker}': データなし")
@@ -1761,18 +1769,28 @@ else:
                 # 集計実行
                 agg_worker = aggregate_timeseries(sub_worker, date_col=date_col, freq=freq)
                 
-                # 集計結果空チェック
                 if agg_worker.empty:
                     st.error(f"❌ '{selected_worker}': 集計結果が空です（日付・数値データを確認してください）")
                 else:
                     display_summary_metrics(agg_worker, ['工数', '能率[%]'], freq=freq)
-                    st.plotly_chart(alt_dual_axis_chart(agg_worker, f"{selected_worker}（作業者別）", show_items={
-                        "生産済": show_seisansu,
-                        "生産時間[分]": show_seisan_time,
-                        "基準時間[分]": show_kijun_time,
-                        "工数": show_kosuu,
-                        "能率[%]": show_nouritsu
-                    }, y_autorange=y_autorange_mode), use_container_width=True, config={"scrollZoom": True}, key=f"chart_worker_{selected_worker}")
+
+                    st.plotly_chart(
+                        alt_dual_axis_chart(
+                            agg_worker,
+                            f"{selected_worker}（作業者別）",
+                            show_items={
+                                "生産済": show_seisansu,
+                                "生産時間[分]": show_seisan_time,
+                                "基準時間[分]": show_kijun_time,
+                                "工数": show_kosuu,
+                                "能率[%]": show_nouritsu
+                            },
+                            y_autorange=y_autorange_mode
+                        ),
+                        use_container_width=True,
+                        config={"scrollZoom": True},
+                        key=f"chart_worker_{selected_worker}"
+                    )
                     
                     st.download_button(
                         f"{selected_worker} の集計CSVをダウンロード",

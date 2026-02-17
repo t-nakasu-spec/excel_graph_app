@@ -38,10 +38,9 @@ def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataF
     _df["生産時間[分]"] = ensure_numeric(_df.get("生産時間[分]", pd.Series(dtype=float)), 0)
     _df["基準時間[分]"] = ensure_numeric(_df.get("基準時間[分]", pd.Series(dtype=float)), 0)
     _df["能率[%]"] = ensure_numeric(_df.get("能率[%]", pd.Series(dtype=float)), 0)
-    _df = _df.set_index(date_col).sort_index()
     grouped = _df.resample(freq).agg({"生産済": "sum", "生産時間[分]": "sum", "基準時間[分]": "sum"})
-    grouped["能率[%]"] = np.where(grouped["生産時間[分]"] > 0, (grouped["基準時間[分]"] / grouped["生産時間[分]"]) * 100, 0.0)
-    grouped["工数"] = np.where(grouped["生産済"] > 0, grouped["生産時間[分]"] / grouped["生産済"], 0.0)
+    grouped["能率[%]"] = np.where(grouped["生産時間[分]"] > 0, (grouped["基準時間[分]"] / grouped["生産時間[分]"]) * 100, np.nan)
+    grouped["工数"] = np.where(grouped["生産済"] > 0, grouped["生産時間[分]"] / grouped["生産済"], np.nan)
     grouped = grouped.reset_index().rename(columns={date_col: "日付"})
     if "日付" in grouped.columns:
         grouped["日付"] = pd.to_datetime(grouped["日付"], errors="coerce")
@@ -170,7 +169,7 @@ if analysis_mode == "先月の小グラフ一覧":
                 # 期間全体の加重平均能率
                 s_time = sub["生産時間[分]"].sum()
                 s_kijun = sub["基準時間[分]"].sum()
-                avg_nouritsu = (s_kijun / s_time * 100) if s_time > 0 else 0.0
+                avg_nouritsu = (s_kijun / s_time * 100) if s_time > 0 else np.nan
                 graph_data_list.append({"gname": gname, "agg": agg, "avg_nouritsu": avg_nouritsu})
     
     # 能率平均昇順でソート

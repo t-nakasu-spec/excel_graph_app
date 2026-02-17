@@ -902,6 +902,8 @@ def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = Non
 
                 line=dict(color='#F39C12', width=3),
 
+                connectgaps=True,
+
                 yaxis='y2'
 
             ),
@@ -929,6 +931,8 @@ def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = Non
                 mode='lines+markers',
 
                 line=dict(color='#E74C3C', width=3, dash='dash'),
+
+                connectgaps=True,
 
                 yaxis='y3'
 
@@ -1062,140 +1066,122 @@ with st.sidebar:
 
 
 if not uploaded:
-
-    st.info("左のサイドバーから Excel ファイル（.xlsx）をアップロードしてください。")
-
-    st.stop()
-
-
-
-# -----------------------------
-
-# Excel読込
-
-# -----------------------------
-
-with st.spinner("Excelを読み込み中…"):
-
-    try:
-
-        xl = pd.ExcelFile(uploaded, engine="openpyxl")
-
-    except Exception as e:
-
-        st.error(f"Excelの読み込みに失敗しました: {e}")
-
+    # 既にセッションにデータがある場合は続行（ページ戻り対応）
+    if "source_data_raw" in st.session_state:
+        data_raw = st.session_state["source_data_raw"]
+        gmap = st.session_state["source_gmap"]
+        graph_name_map = st.session_state.get("source_graph_name_map", {})
+        data_sheet_name = st.session_state.get("source_data_sheet_name", "39")
+        cond_sheet_name = st.session_state.get("source_cond_sheet_name", "条件シート")
+        cond = st.session_state.get("source_cond", pd.DataFrame())
+        graph_cols = st.session_state.get("source_graph_cols", [])
+        graph_names = sorted(gmap.keys())
+        skip_loading = True
+    else:
+        st.info("左のサイドバーから Excel ファイル（.xlsx）をアップロードしてください。")
         st.stop()
+else:
+    skip_loading = False
 
-
-
-    # 条件シート名の推定
-
-    cond_sheet_name = "条件シート" if "条件シート" in xl.sheet_names else next((s for s in xl.sheet_names if "条件" in s), None)
-
-    if not cond_sheet_name:
-
-        st.error(f"条件シートが見つかりません。存在するシート: {xl.sheet_names}")
-
-        st.stop()
-
-
-
-    # データシート名
-
-    data_sheet_name = "39" if "39" in xl.sheet_names else xl.sheet_names[0]
-
-
-
-    try:
-
-        cond_raw = xl.parse(cond_sheet_name, header=int(cond_header_idx))
-
-        data_raw = xl.parse(data_sheet_name, header=int(data_header_idx))
-        
-        # 列名の空白除去（不整合防止）
-        if not data_raw.empty:
-            data_raw.columns = [str(c).strip() for c in data_raw.columns]
-
-
-    except Exception as e:
-
-        st.error(f"シートの読み取りに失敗しました: {e}")
-
-        st.stop()
-
-    # グラフ名シートの読み込み（オプション）
-    graph_name_map = {}
-    if "グラフ名" in xl.sheet_names:
-        try:
-            # ユーザー指定：A列=グラフ番号, B列=グラフ名
-            gname_df = xl.parse("グラフ名")
-            if len(gname_df.columns) >= 2:
-                for _, row in gname_df.iterrows():
-                    k = normalize_graph_key(row[0])
-                    v = str(row[1]).strip()
-                    if k and k.lower() != "nan" and v and v.lower() != "nan":
-                        graph_name_map[k] = v
-        except Exception:
-            pass
-    
+if not skip_loading:
     # -----------------------------
-    # 追加: 手動アップロードされたファイルの読み込みと統合
+    # Excel読込
     # -----------------------------
-    sino_mapping_list = []  # (出荷品番, グラフ番号) のリスト
-
-    if uploaded_sino:
+    with st.spinner("Excelを読み込み中…"):
         try:
-            # Sheet "33" を読み込み
-            sino_df = pd.read_excel(uploaded_sino, sheet_name="33")
-            if not sino_df.empty:
-                # 列名正規化
-                sino_df.columns = [str(c).strip() for c in sino_df.columns]
-
-                # "条件" 列が無い場合、シート名 "33" を条件番号として付与
-                if "条件" not in sino_df.columns:
-                     sino_df["条件"] = 33
-
-                data_raw = pd.concat([data_raw, sino_df], ignore_index=True)
-                
-                # マッピング情報の抽出
-                if "出荷品番" in sino_df.columns:
-                    # 必要な列だけ抽出してリスト化
-                    for _, r in sino_df.iterrows():
-                        sino_mapping_list.append((r["出荷品番"], r["条件"]))
-
+            xl = pd.ExcelFile(uploaded, engine="openpyxl")
         except Exception as e:
-            st.warning(f"追加データの読み込みに失敗しました: {e}")
+            st.error(f"Excelの読み込みに失敗しました: {e}")
+            st.stop()
 
+        # 条件シート名の推定
+        cond_sheet_name = "条件シート" if "条件シート" in xl.sheet_names else next((s for s in xl.sheet_names if "条件" in s), None)
+        if not cond_sheet_name:
+            st.error(f"条件シートが見つかりません。存在するシート: {xl.sheet_names}")
+            st.stop()
 
+        # データシート名
+        data_sheet_name = "39" if "39" in xl.sheet_names else xl.sheet_names[0]
 
-# 条件シート正規化（列位置ベース）
+        try:
+            cond_raw = xl.parse(cond_sheet_name, header=int(cond_header_idx))
+            data_raw = xl.parse(data_sheet_name, header=int(data_header_idx))
+            
+            # 列名の空白除去（不整合防止）
+            if not data_raw.empty:
+                data_raw.columns = [str(c).strip() for c in data_raw.columns]
+        except Exception as e:
+            st.error(f"シートの読み取りに失敗しました: {e}")
+            st.stop()
 
-cond, graph_cols = normalize_conditions_by_position(cond_raw)
+        # グラフ名シートの読み込み（オプション）
+        graph_name_map = {}
+        if "グラフ名" in xl.sheet_names:
+            try:
+                # ユーザー指定：A列=グラフ番号, B列=グラフ名
+                gname_df = xl.parse("グラフ名")
+                if len(gname_df.columns) >= 2:
+                    for _, row in gname_df.iterrows():
+                        k = normalize_graph_key(row[0])
+                        v = str(row[1]).strip()
+                        if k and k.lower() != "nan" and v and v.lower() != "nan":
+                            graph_name_map[k] = v
+            except Exception:
+                pass
+        
+        # -----------------------------
+        # 追加: 手動アップロードされたファイルの読み込みと統合
+        # -----------------------------
+        sino_mapping_list = []  # (出荷品番, グラフ番号) のリスト
 
-gmap = build_graph_map_dynamic(cond, graph_cols, name_map=graph_name_map)
+        if uploaded_sino:
+            try:
+                # Sheet "33" を読み込み
+                sino_df = pd.read_excel(uploaded_sino, sheet_name="33")
+                if not sino_df.empty:
+                    # 列名正規化
+                    sino_df.columns = [str(c).strip() for c in sino_df.columns]
+                    # "条件" 列が無い場合、シート名 "33" を条件番号として付与
+                    if "条件" not in sino_df.columns:
+                        sino_df["条件"] = 33
+                    data_raw = pd.concat([data_raw, sino_df], ignore_index=True)
+                    # マッピング情報の抽出
+                    if "出荷品番" in sino_df.columns:
+                        for _, r in sino_df.iterrows():
+                            sino_mapping_list.append((r["出荷品番"], r["条件"]))
+            except Exception as e:
+                st.warning(f"追加データの読み込みに失敗しました: {e}")
 
-# sinoPのマッピング情報を追記
-for item_val, g_val in sino_mapping_list:
-    item = str(item_val).strip()
-    if not item or item.lower() == "nan":
-        continue
-    
-    g_raw = normalize_graph_key(g_val)
-    if g_raw == "" or g_raw.lower() == "nan":
-        continue
+if not skip_loading:
+    # 条件シート正規化（列位置ベース）
+    cond, graph_cols = normalize_conditions_by_position(cond_raw)
+    gmap = build_graph_map_dynamic(cond, graph_cols, name_map=graph_name_map)
 
-    # グラフ名変換
-    gname = graph_name_map.get(g_raw, g_raw)
-    gmap.setdefault(gname, set()).add(item)
+    # sinoPのマッピング情報を追記
+    for item_val, g_val in sino_mapping_list:
+        item = str(item_val).strip()
+        if not item or item.lower() == "nan":
+            continue
+        g_raw = normalize_graph_key(g_val)
+        if g_raw == "" or g_raw.lower() == "nan":
+            continue
+        gname = graph_name_map.get(g_raw, g_raw)
+        gmap.setdefault(gname, set()).add(item)
 
-graph_names = sorted(gmap.keys())
+    graph_names = sorted(gmap.keys())
 
+    # 保存（後の復元用）
+    st.session_state.update({
+        "source_data_raw": data_raw,
+        "source_gmap": gmap,
+        "source_graph_name_map": graph_name_map,
+        "source_data_sheet_name": data_sheet_name,
+        "source_cond_sheet_name": cond_sheet_name,
+        "source_cond": cond,
+        "source_graph_cols": graph_cols,
+    })
 
-
-
-# データ前処理
-
+# データ前処理（常に生データから開始）
 data = data_raw.copy()
 
 
@@ -1267,10 +1253,11 @@ data["能率[%]"] = np.where(
     data["生産時間[分]"] > 0,
 
     (data["基準時間[分]"] / data["生産時間[分]"]) * 100,
-
     0.0
-
 )
+
+# 分析ページ用に、フィルタ前の計算済みデータを保存
+st.session_state["data_full_calculated"] = data.copy()
 
 
 
@@ -1319,8 +1306,15 @@ else:
     st.warning("選択した日付列を日時に解釈できませんでした。日付列の選択を見直してください。")
 
 
+st.session_state.update({"data": data, "gmap": gmap, "date_col": date_col})
 
 # プレビュー
+
+if skip_loading:
+    data_sheet_name = "（セッションから復元）"
+    cond_sheet_name = "（セッションから復元）"
+    cond = pd.DataFrame() # プレビュー用の空枠
+    graph_cols = []
 
 with st.expander("データプレビュー（先頭50行）", expanded=False):
 
@@ -1411,7 +1405,10 @@ with st.expander("🔍 デバッグ：集計後のカラム一覧", expanded=Fal
 
     st.write("**能率[%]の値（先頭10行）:**")
 
-    st.write(overall_agg[["日付", "能率[%]"]].head(10))
+    if not overall_agg.empty and "日付" in overall_agg.columns and "能率[%]" in overall_agg.columns:
+        st.write(overall_agg[["日付", "能率[%]"]].head(10))
+    else:
+        st.write("表示できるデータがありません")
 
 
 

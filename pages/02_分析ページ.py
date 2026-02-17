@@ -1,0 +1,204 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from datetime import datetime
+
+# ページ設定
+st.set_page_config(page_title="📊 分析ページ", layout="wide")
+st.title("📊 分析ページ")
+
+# 共有関数の再定義（app.py 互換）
+def parse_datetime_series(s: pd.Series) -> pd.Series:
+    if s is None:
+        return pd.Series([], dtype="datetime64[ns]")
+    if np.issubdtype(s.dtype, np.datetime64):
+        try:
+            return s.dt.tz_localize(None)
+        except Exception:
+            return s
+    if np.issubdtype(s.dtype, np.number):
+        try:
+            return pd.to_datetime(s, unit="D", origin="1899-12-30", errors="coerce")
+        except Exception:
+            pass
+    return pd.to_datetime(s, errors="coerce")
+
+def ensure_numeric(s: pd.Series, fill=0) -> pd.Series:
+    return pd.to_numeric(s, errors="coerce").fillna(fill)
+
+def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataFrame:
+    _df = df.copy()
+    _df[date_col] = parse_datetime_series(_df[date_col])
+    _df = _df.dropna(subset=[date_col])
+    if _df.empty:
+        return pd.DataFrame()
+    _df["生産済"] = ensure_numeric(_df.get("生産済", pd.Series(dtype=float)), 0)
+    _df["生産時間[分]"] = ensure_numeric(_df.get("生産時間[分]", pd.Series(dtype=float)), 0)
+    _df["基準時間[分]"] = ensure_numeric(_df.get("基準時間[分]", pd.Series(dtype=float)), 0)
+    _df["能率[%]"] = ensure_numeric(_df.get("能率[%]", pd.Series(dtype=float)), 0)
+    _df = _df.set_index(date_col).sort_index()
+    grouped = _df.resample(freq).agg({"生産済": "sum", "生産時間[分]": "sum", "基準時間[分]": "sum", "能率[%]": "mean"})
+    grouped["工数"] = np.where(grouped["生産済"] > 0, grouped["生産時間[分]"] / grouped["生産済"], 0.0)
+    grouped = grouped.reset_index().rename(columns={date_col: "日付"})
+    if "日付" in grouped.columns:
+        grouped["日付"] = pd.to_datetime(grouped["日付"], errors="coerce")
+    return grouped
+
+def alt_dual_axis_chart(agg_df: pd.DataFrame, title: str, show_items: dict = None, height=500, show_legend=True):
+    if show_items is None:
+        show_items = {"生産済": True, "生産時間[分]": True, "基準時間[分]": True, "工数": True, "能率[%]": True}
+    if agg_df.empty:
+        return go.Figure().add_annotation(text="データなし", showarrow=False)
+    
+    _df = agg_df.copy()
+    if "日付" in _df.columns:
+        _df["日付"] = pd.to_datetime(_df["日付"], errors='coerce')
+    _df = _df.replace([np.inf, -np.inf], np.nan)
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    bar_configs = [("生産済", '#4472C4', 0.7), ("生産時間[分]", '#70AD47', 0.6), ("基準時間[分]", '#FFC000', 0.6)]
+    for item_name, color, opacity in bar_configs:
+        if show_items.get(item_name, True) and item_name in _df.columns:
+            fig.add_trace(go.Bar(x=_df["日付"], y=_df[item_name], name=item_name, marker_color=color, opacity=opacity, yaxis='y'), secondary_y=False)
+    
+    if show_items.get("工数", True) and "工数" in _df.columns:
+        fig.add_trace(go.Scatter(x=_df["日付"], y=_df["工数"], name="工数", mode='lines+markers', line=dict(color='#F39C12', width=3), connectgaps=True, yaxis='y2'), secondary_y=True)
+    
+    if show_items.get("能率[%]", True) and "能率[%]" in _df.columns:
+        fig.add_trace(go.Scatter(
+            x=_df["日付"], 
+            y=_df["能率[%]"], 
+            name="能率[%]", 
+            mode='lines+markers', 
+            line=dict(color='#E74C3C', width=3), # 実線に変更
+            connectgaps=True,
+            yaxis='y3'
+        ))
+
+    fig.add_shape(type="line", x0=0, x1=1, xref="paper", y0=105, y1=105, yref="y3", line=dict(color="red", width=2))
+    
+    fig.update_layout(
+        title=title, height=height, showlegend=show_legend,
+        xaxis=dict(title="日付", domain=[0, 0.88], tickformat="%m/%d"),
+        yaxis=dict(title="生産済/時間", side='left'),
+        yaxis2=dict(
+            title="工数" if show_items.get("工数", True) else None, 
+            side='right', 
+            overlaying='y', 
+            title_font=dict(color='#F39C12'), 
+            tickfont=dict(color='#F39C12'),
+            showticklabels=show_items.get("工数", True)
+        ),
+        yaxis3=dict(title="能率[%]", side='right', overlaying='y', anchor='free', position=1.0, title_font=dict(color='#E74C3C'), tickfont=dict(color='#E74C3C'), range=[0, 130]), # 0-130に固定
+        margin=dict(l=50, r=100, t=50, b=50),
+        hovermode='x unified'
+    )
+    return fig
+
+# データ取得
+if "data" not in st.session_state:
+    st.warning("先にメインページでファイルをアップロードしてください。")
+    st.stop()
+
+# データのコピーと情報の取得
+df_raw = st.session_state.get("data_full_calculated", st.session_state.get("data", pd.DataFrame())).copy()
+gmap = st.session_state.get("gmap", {})
+date_col = st.session_state.get("date_col", "日付")
+
+if df_raw.empty:
+    st.warning("データが空です。")
+    st.stop()
+
+# サイドバーUI
+analysis_mode = st.sidebar.radio(
+    "分析モード選択",
+    ["先月の小グラフ一覧", "グラフ名別サマリー一覧"]
+)
+
+# 期間計算（先月）
+today = pd.Timestamp.today().normalize()
+first_this_month = today.replace(day=1)
+last_month_end = first_this_month - pd.Timedelta(days=1)
+last_month_start = last_month_end.replace(day=1)
+
+# 先月データフィルタ
+df_raw[date_col] = parse_datetime_series(df_raw[date_col])
+df_last_month = df_raw[(df_raw[date_col] >= last_month_start) & (df_raw[date_col] <= last_month_end)].copy()
+
+if df_last_month.empty:
+    st.warning(f"先月（{last_month_start.date()} ～ {last_month_end.date()}）のデータが見つかりません。")
+    st.stop()
+
+if analysis_mode == "先月の小グラフ一覧":
+    st.subheader(f"📊 先月の小グラフ一覧 ({last_month_start.date()} ～ {last_month_end.date()})")
+    
+    # グラフ名ごとの集計と能率平均の算出
+    graph_data_list = []
+    for gname, items in gmap.items():
+        sub = df_last_month[df_last_month["出荷品番"].astype(str).str.strip().isin(items)].copy()
+        if not sub.empty:
+            agg = aggregate_timeseries(sub, date_col=date_col, freq="D")
+            if not agg.empty:
+                avg_nouritsu = agg["能率[%]"].mean()
+                graph_data_list.append({"gname": gname, "agg": agg, "avg_nouritsu": avg_nouritsu})
+    
+    # 能率平均昇順でソート
+    graph_data_list = sorted(graph_data_list, key=lambda x: x["avg_nouritsu"])
+    
+    if not graph_data_list:
+        st.warning("対象となるグラフデータがありません。")
+    else:
+        # 1行3列レイアウトで表示
+        cols = st.columns(3)
+        for i, item in enumerate(graph_data_list):
+            with cols[i % 3]:
+                fig = alt_dual_axis_chart(
+                    item["agg"], 
+                    title=f"{item['gname']} (能率: {item['avg_nouritsu']:.1f}%)", 
+                    show_items={"工数": False, "能率[%]": True, "生産済": False, "生産時間[分]": False, "基準時間[分]": False},
+                    height=250, 
+                    show_legend=False
+                )
+                st.plotly_chart(fig, use_container_width=True, key=f"chart_{i}")
+
+elif analysis_mode == "グラフ名別サマリー一覧":
+    st.subheader(f"📋 グラフ名別サマリー一覧 ({last_month_start.date()} ～ {last_month_end.date()})")
+    
+    summary_list = []
+    for gname, items in gmap.items():
+        sub = df_last_month[df_last_month["出荷品番"].astype(str).str.strip().isin(items)].copy()
+        if not sub.empty:
+            s_seisan = sub["生産済"].sum()
+            s_time = sub["生産時間[分]"].sum()
+            s_kijun = sub["基準時間[分]"].sum()
+            avg_kosuu = (s_time / s_seisan) if s_seisan > 0 else 0.0
+            nouritsu = (s_kijun / s_time * 100) if s_time > 0 else 0.0
+            
+            summary_list.append({
+                "グラフ名": gname,
+                "生産済": s_seisan,
+                "生産時間[分]": s_time,
+                "工数平均": avg_kosuu,
+                "能率[%]": nouritsu
+            })
+    
+    if not summary_list:
+        st.warning("対象となるサマリーデータがありません。")
+    else:
+        summary_df = pd.DataFrame(summary_list)
+        # 能率昇順
+        summary_df = summary_df.sort_values("能率[%]", ascending=True)
+        
+        # フォーマット適用
+        st.dataframe(
+            summary_df.style.format({
+                "生産済": "{:,.0f}",
+                "生産時間[分]": "{:,.1f}",
+                "工数平均": "{:,.2f}",
+                "能率[%]": "{:,.2f}"
+            }),
+            use_container_width=True,
+            height=600 # 十分な高さを確保
+        )

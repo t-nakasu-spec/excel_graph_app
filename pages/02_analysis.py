@@ -131,7 +131,7 @@ if df_raw.empty:
 # サイドバーUI
 analysis_mode = st.sidebar.radio(
     "分析モード選択",
-    ["先月の小グラフ一覧", "グラフ名別サマリー一覧"]
+    ["個別グラフ分析（月間）", "項目別サマリー（月間）"]
 )
 
 # 分析対象月の選択（動的）
@@ -147,6 +147,7 @@ selected_month_str = st.sidebar.selectbox("分析対象年月を選択", options
 
 # 対象月の範囲計算
 sel_dt = datetime.strptime(selected_month_str, "%Y-%m")
+display_month = f"{sel_dt.year}年{sel_dt.month}月"
 month_start = pd.Timestamp(sel_dt).replace(day=1)
 month_end = (month_start + pd.offsets.MonthEnd(0)).replace(hour=23, minute=59, second=59)
 
@@ -157,8 +158,8 @@ if df_selected.empty:
     st.warning(f"選択された月（{selected_month_str}）のデータが見つかりません。")
     st.stop()
 
-if analysis_mode == "先月の小グラフ一覧":
-    st.subheader(f"📊 月間小グラフ一覧 ({selected_month_str})")
+if analysis_mode == "個別グラフ分析（月間）":
+    st.subheader(f"📊 {display_month} グラフ分析レポート")
     
     # グラフ名ごとの集計と能率平均の算出
     graph_data_list = []
@@ -192,8 +193,8 @@ if analysis_mode == "先月の小グラフ一覧":
                 )
                 st.plotly_chart(fig, use_container_width=True, key=f"chart_{i}")
 
-elif analysis_mode == "グラフ名別サマリー一覧":
-    st.subheader(f"📋 グラフ名別サマリー一覧 ({selected_month_str})")
+elif analysis_mode == "項目別サマリー（月間）":
+    st.subheader(f"📋 {display_month} 項目別サマリー集計")
     
     summary_list = []
     for gname, items in gmap.items():

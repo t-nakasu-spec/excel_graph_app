@@ -22,6 +22,8 @@ import numpy as np
 
 import pandas as pd
 
+from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
+
 import streamlit as st
 
 import altair as alt
@@ -68,7 +70,7 @@ def parse_datetime_series(s: pd.Series) -> pd.Series:
 
         return pd.Series([], dtype="datetime64[ns]")
 
-    if np.issubdtype(s.dtype, np.datetime64):
+    if is_datetime64_any_dtype(s):
 
         try:
 
@@ -80,7 +82,7 @@ def parse_datetime_series(s: pd.Series) -> pd.Series:
 
     # 数値（Excel日数シリアル対応）
 
-    if np.issubdtype(s.dtype, np.number):
+    if is_numeric_dtype(s):
 
         try:
 

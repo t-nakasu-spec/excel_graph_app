@@ -119,6 +119,20 @@ def compute_minutes(soyo_time: pd.Series, mode: str) -> pd.Series:
     return x * 1440.0 if mode == "excel_time" else x
 
 
+def normalize_resample_freq(freq: str) -> str:
+
+    """pandas 3 で変更された旧オフセット別名を互換変換する。"""
+
+    return {
+        "M": "ME",
+        "Q": "QE",
+        "Y": "YE",
+        "BM": "BME",
+        "BQ": "BQE",
+        "BY": "BYE",
+    }.get(freq, freq)
+
+
 def normalize_graph_key(val) -> str:
 
     """グラフ番号の表記ゆれを統一（例: 24.0 → 24）"""
@@ -438,7 +452,7 @@ def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataF
 
     """
 
-    日付列で集計（freq='D'|'W'|'M'）。工数=生産時間[分]/生産済（0除算=0）。
+    日付列で集計（freq='D'|'W'|'ME'）。工数=生産時間[分]/生産済（0除算=0）。
 
     """
 
@@ -468,7 +482,7 @@ def aggregate_timeseries(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataF
 
     _df = _df.set_index(date_col).sort_index()
 
-    grouped = _df.resample(freq).agg({"生産済": "sum", "生産時間[分]": "sum", "基準時間[分]": "sum", "能率[%]": "mean"})
+    grouped = _df.resample(normalize_resample_freq(freq)).agg({"生産済": "sum", "生産時間[分]": "sum", "基準時間[分]": "sum", "能率[%]": "mean"})
 
     grouped["工数"] = np.where(grouped["生産済"] > 0, grouped["生産時間[分]"] / grouped["生産済"], 0.0)
 
@@ -752,7 +766,7 @@ def display_summary_metrics(agg_df: pd.DataFrame, columns_list: list = None, fre
 
                 if pd.notna(d_val):
 
-                    if freq == "M":
+                    if normalize_resample_freq(freq) == "ME":
 
                         d_str = d_val.strftime('%Y年%m月')
 
@@ -1033,7 +1047,7 @@ with st.sidebar:
 
 
 
-    freq_options = [("日次", "D"), ("週次", "W"), ("月次", "M")]
+    freq_options = [("日次", "D"), ("週次", "W"), ("月次", "ME")]
 
     freq_choice = st.selectbox("集計粒度", options=freq_options, format_func=lambda x: x[0], index=0)
 

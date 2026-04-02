@@ -94,7 +94,15 @@ def parse_datetime_series(s: pd.Series) -> pd.Series:
 
     # 文字列など
 
-    return pd.to_datetime(s, errors="coerce", infer_datetime_format=True)
+    parsed = pd.to_datetime(s, errors="coerce", utc=True)
+
+    try:
+
+        return parsed.dt.tz_localize(None)
+
+    except Exception:
+
+        return parsed
 
 
 

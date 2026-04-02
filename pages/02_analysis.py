@@ -131,7 +131,7 @@ if df_raw.empty:
 # サイドバーUI
 analysis_mode = st.sidebar.radio(
     "分析モード選択",
-    ["個別グラフ分析（月間）", "項目別サマリー（月間）"]
+    ["個別グラフ分析（月間）", "項目別サマリー（月間）", "取引先別生産時間分析"]
 )
 
 # 分析対象月の選択（動的）
@@ -232,3 +232,54 @@ elif analysis_mode == "項目別サマリー（月間）":
             use_container_width=True,
             height=600 # 十分な高さを確保
         )
+
+elif analysis_mode == "取引先別生産時間分析":
+    st.subheader(f"📋 {display_month} 取引先別生産時間[分]集計")
+    
+    # 取引先列の存在チェック
+    if "取引先" not in df_selected.columns:
+        st.warning("データに '取引先' 列が見つかりません。")
+    else:
+        # 取引先ごとの生産時間[分]を集計
+        client_summary = df_selected.groupby("取引先").agg({
+            "生産時間[分]": "sum"
+        }).reset_index()
+        
+        # 空白・NaNを除外
+        client_summary = client_summary[
+            client_summary["取引先"].astype(str).str.strip().ne("") & 
+            client_summary["取引先"].astype(str).str.strip().ne("nan")
+        ]
+        
+        # 生産時間[分]の降順でソート
+        client_summary = client_summary.sort_values("生産時間[分]", ascending=False)
+        
+        if client_summary.empty:
+            st.warning("対象となる取引先データがありません。")
+        else:
+            # 集計表の表示
+            st.dataframe(
+                client_summary.style.format({
+                    "生産時間[分]": "{:,.1f}"
+                }),
+                use_container_width=True,
+                height=400
+            )
+            
+            # 横棒グラフの表示
+            fig = go.Figure(go.Bar(
+                x=client_summary["生産時間[分]"],
+                y=client_summary["取引先"],
+                orientation='h',
+                marker_color='#70AD47'
+            ))
+            
+            fig.update_layout(
+                title=f"{display_month} 取引先別 生産時間[分]",
+                xaxis_title="生産時間[分]",
+                yaxis_title="取引先",
+                height=max(400, len(client_summary) * 30),
+                yaxis=dict(autorange="reversed")  # 上から順に並ぶ
+            )
+            
+            st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
